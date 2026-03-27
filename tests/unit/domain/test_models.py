@@ -4,6 +4,7 @@ import pytest
 
 from opcua_tui.domain.models import (
     AppState,
+    ConnectModalState,
     ConnectParams,
     DataValueView,
     NodeAttributes,
@@ -27,6 +28,9 @@ def test_frozen_model_construction_contracts() -> None:
     assert node.has_children is True
     assert attrs.display_name == "Node 1"
     assert value.value == {"x": 1}
+    assert params.security_mode.value == "none"
+    assert params.security_policy.value == "none"
+    assert params.authentication_mode.value == "anonymous"
 
 
 def test_frozen_models_are_immutable() -> None:
@@ -46,3 +50,12 @@ def test_app_state_defaults_are_independent_per_instance() -> None:
     assert right.browser.roots == []
     assert right.browser.loading == set()
     assert right.browser.children_by_parent == {}
+
+
+def test_connect_modal_state_owns_its_default_params() -> None:
+    left = ConnectModalState()
+    right = ConnectModalState()
+
+    left.params = ConnectParams(endpoint="opc.tcp://left:4840")
+
+    assert right.params.endpoint == ""

@@ -6,6 +6,10 @@ from opcua_tui.app.messages import (
     ChildrenLoadFailed,
     ChildrenLoadStarted,
     ChildrenLoadSucceeded,
+    ConnectFormUpdated,
+    ConnectFormValidationFailed,
+    ConnectModalClosed,
+    ConnectModalOpened,
     ConnectRequested,
     ConnectionFailed,
     ConnectionStarted,
@@ -22,7 +26,7 @@ from opcua_tui.app.messages import (
     RootBrowseStarted,
     RootBrowseSucceeded,
 )
-from opcua_tui.domain.models import AppState
+from opcua_tui.domain.models import AppState, BrowserState, InspectorState
 
 
 def _format_error_with_ref(error: str, error_ref: str | None) -> str:
@@ -35,25 +39,61 @@ def reduce(state: AppState, message: object) -> AppState:
     next_state = deepcopy(state)
 
     match message:
+        case ConnectModalOpened(params=params):
+            next_state.connect_modal.is_open = True
+            next_state.connect_modal.params = params
+            next_state.connect_modal.is_submitting = False
+            next_state.connect_modal.error = None
+            next_state.ui.status_text = "Ready to connect"
+
+        case ConnectModalClosed():
+            next_state.connect_modal.is_open = False
+            next_state.connect_modal.is_submitting = False
+            next_state.connect_modal.error = None
+
+        case ConnectFormUpdated(params=params):
+            next_state.connect_modal.params = params
+            next_state.connect_modal.error = None
+
+        case ConnectFormValidationFailed(error=error):
+            next_state.connect_modal.is_submitting = False
+            next_state.connect_modal.error = error
+            next_state.ui.status_text = error
+
         case ConnectRequested(params=params):
             next_state.session.params = params
             next_state.session.status = "connecting"
+            next_state.session.session = None
             next_state.session.error = None
+            next_state.connect_modal.is_open = True
+            next_state.connect_modal.params = params
+            next_state.connect_modal.is_submitting = True
+            next_state.connect_modal.error = None
             next_state.ui.status_text = f"Connecting to {params.endpoint}"
 
         case ConnectionStarted(endpoint=endpoint):
             next_state.session.status = "connecting"
+            next_state.connect_modal.is_submitting = True
             next_state.ui.status_text = f"Connecting to {endpoint}"
 
         case ConnectionSucceeded(session=session):
             next_state.session.status = "connected"
             next_state.session.session = session
             next_state.session.error = None
+            next_state.browser = BrowserState()
+            next_state.inspector = InspectorState()
+            next_state.connect_modal.is_open = False
+            next_state.connect_modal.is_submitting = False
+            next_state.connect_modal.error = None
             next_state.ui.status_text = f"Connected to {session.endpoint}"
 
         case ConnectionFailed(endpoint=endpoint, error=error, error_ref=error_ref):
             next_state.session.status = "error"
+            next_state.session.session = None
             next_state.session.error = error
+            next_state.connect_modal.is_open = True
+            next_state.connect_modal.is_submitting = False
+            next_state.connect_modal.error = _format_error_with_ref(error, error_ref)
             next_state.ui.status_text = (
                 f"Connection failed for {endpoint}: {_format_error_with_ref(error, error_ref)}"
             )

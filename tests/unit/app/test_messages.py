@@ -7,6 +7,10 @@ from opcua_tui.app.messages import (
     ChildrenLoadFailed,
     ChildrenLoadStarted,
     ChildrenLoadSucceeded,
+    ConnectFormUpdated,
+    ConnectFormValidationFailed,
+    ConnectModalClosed,
+    ConnectModalOpened,
     ConnectRequested,
     ConnectionFailed,
     ConnectionStarted,
@@ -46,6 +50,10 @@ def test_all_messages_inherit_base_message() -> None:
     )
     instances = [
         AppStarted(),
+        ConnectModalOpened(params=ConnectParams(endpoint="opc.tcp://localhost:4840")),
+        ConnectModalClosed(),
+        ConnectFormUpdated(params=ConnectParams(endpoint="opc.tcp://localhost:4840")),
+        ConnectFormValidationFailed(error="Endpoint is required"),
         ConnectRequested(params=ConnectParams(endpoint="opc.tcp://localhost:4840")),
         ConnectionStarted(endpoint="opc.tcp://localhost:4840"),
         ConnectionSucceeded(session=session),

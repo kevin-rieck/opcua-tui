@@ -2,6 +2,10 @@ from opcua_tui.app.messages import (
     ChildrenLoadFailed,
     ChildrenLoadStarted,
     ChildrenLoadSucceeded,
+    ConnectFormUpdated,
+    ConnectFormValidationFailed,
+    ConnectModalClosed,
+    ConnectModalOpened,
     ConnectRequested,
     ConnectionFailed,
     ConnectionStarted,
@@ -21,6 +25,7 @@ from opcua_tui.app.reducer import reduce
 from opcua_tui.domain.models import (
     AppState,
     ConnectParams,
+    ConnectModalState,
     DataValueView,
     NodeAttributes,
     NodeRef,
@@ -29,8 +34,37 @@ from opcua_tui.domain.models import (
 )
 
 
-def test_reduce_connection_messages() -> None:
+def test_reduce_connect_modal_messages() -> None:
     state = AppState()
+    params = ConnectParams(endpoint="opc.tcp://localhost:4840")
+
+    opened = reduce(state, ConnectModalOpened(params=params))
+    assert opened.connect_modal.is_open is True
+    assert opened.connect_modal.params == params
+    assert opened.connect_modal.is_submitting is False
+
+    updated = reduce(
+        opened, ConnectFormUpdated(params=ConnectParams(endpoint="opc.tcp://demo:4840"))
+    )
+    assert updated.connect_modal.params.endpoint == "opc.tcp://demo:4840"
+    assert updated.connect_modal.error is None
+
+    invalid = reduce(updated, ConnectFormValidationFailed(error="Endpoint is required"))
+    assert invalid.connect_modal.error == "Endpoint is required"
+    assert invalid.connect_modal.is_submitting is False
+
+    closed = reduce(invalid, ConnectModalClosed())
+    assert closed.connect_modal.is_open is False
+    assert closed.connect_modal.error is None
+
+
+def test_reduce_connection_messages() -> None:
+    state = AppState(
+        connect_modal=ConnectModalState(
+            is_open=True,
+            params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+        )
+    )
     params = ConnectParams(endpoint="opc.tcp://localhost:4840")
     session = SessionInfo(
         session_id="s1",
@@ -42,20 +76,29 @@ def test_reduce_connection_messages() -> None:
     assert state.session.status == "disconnected"
     assert after_connect_requested.session.status == "connecting"
     assert after_connect_requested.session.params == params
+    assert after_connect_requested.connect_modal.is_submitting is True
 
     after_connection_started = reduce(state, ConnectionStarted(endpoint=params.endpoint))
     assert after_connection_started.session.status == "connecting"
     assert "Connecting to" in after_connection_started.ui.status_text
+    assert after_connection_started.connect_modal.is_submitting is True
 
     after_connection_succeeded = reduce(state, ConnectionSucceeded(session=session))
     assert after_connection_succeeded.session.status == "connected"
     assert after_connection_succeeded.session.session == session
+    assert after_connection_succeeded.connect_modal.is_open is False
+    assert after_connection_succeeded.connect_modal.is_submitting is False
+    assert after_connection_succeeded.browser.roots == []
+    assert after_connection_succeeded.inspector.node_id is None
 
     after_connection_failed = reduce(
         state, ConnectionFailed(endpoint=params.endpoint, error="boom")
     )
     assert after_connection_failed.session.status == "error"
     assert after_connection_failed.session.error == "boom"
+    assert after_connection_failed.connect_modal.is_open is True
+    assert after_connection_failed.connect_modal.is_submitting is False
+    assert after_connection_failed.connect_modal.error == "boom"
 
 
 def test_reduce_root_browse_messages() -> None:
@@ -179,3 +222,32 @@ def test_reduce_failure_status_includes_error_ref_when_present() -> None:
     next_state = reduce(state, RootBrowseFailed(error="denied", error_ref="abc12345"))
 
     assert "ref: abc12345" in next_state.ui.status_text
+
+
+def test_reduce_connection_success_clears_stale_browser_and_inspector_state() -> None:
+    state = AppState(
+        connect_modal=ConnectModalState(
+            is_open=True,
+            params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+        )
+    )
+    state.browser.roots = [NodeRef(node_id="i=85", display_name="Objects", node_class="Object")]
+    state.browser.children_by_parent["i=85"] = []
+    state.browser.expanded.add("i=85")
+    state.browser.selected_node_id = "i=85"
+    state.inspector.node_id = "i=85"
+    state.inspector.loading = True
+
+    session = SessionInfo(
+        session_id="s1",
+        endpoint="opc.tcp://localhost:4840",
+        server=ServerInfo(application_name="Server"),
+    )
+    next_state = reduce(state, ConnectionSucceeded(session=session))
+
+    assert next_state.browser.roots == []
+    assert next_state.browser.children_by_parent == {}
+    assert next_state.browser.expanded == set()
+    assert next_state.browser.selected_node_id is None
+    assert next_state.inspector.node_id is None
+    assert next_state.inspector.loading is False

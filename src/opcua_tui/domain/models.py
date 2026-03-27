@@ -3,10 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
+
 
 @dataclass(slots=True, frozen=True)
 class ConnectParams:
     endpoint: str
+    security_mode: SecurityMode = SecurityMode.NONE
+    security_policy: SecurityPolicy = SecurityPolicy.NONE
+    authentication_mode: AuthenticationMode = AuthenticationMode.ANONYMOUS
+    username: str = ""
+    password: str = ""
+    certificate_path: str = ""
+    private_key_path: str = ""
 
 
 @dataclass(slots=True, frozen=True)
@@ -80,8 +89,17 @@ class UiState:
 
 
 @dataclass(slots=True)
+class ConnectModalState:
+    is_open: bool = False
+    params: ConnectParams = field(default_factory=lambda: ConnectParams(endpoint=""))
+    is_submitting: bool = False
+    error: str | None = None
+
+
+@dataclass(slots=True)
 class AppState:
     session: SessionState = field(default_factory=SessionState)
     browser: BrowserState = field(default_factory=BrowserState)
     inspector: InspectorState = field(default_factory=InspectorState)
     ui: UiState = field(default_factory=UiState)
+    connect_modal: ConnectModalState = field(default_factory=ConnectModalState)

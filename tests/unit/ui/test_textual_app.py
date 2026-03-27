@@ -1,8 +1,10 @@
 import asyncio
 
-from opcua_tui.app.messages import AppStarted, ConnectRequested, RootBrowseRequested
+from opcua_tui.app.messages import AppStarted, ConnectModalOpened, RootBrowseRequested
+from opcua_tui.domain.models import ServerInfo, SessionInfo
 from opcua_tui.ui import textual_app
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
+from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
 
 
 def test_run_constructs_app_and_calls_run(monkeypatch) -> None:
@@ -19,7 +21,33 @@ def test_run_constructs_app_and_calls_run(monkeypatch) -> None:
     assert called == [True]
 
 
-def test_app_on_mount_dispatches_startup_messages(monkeypatch) -> None:
+def test_app_on_mount_opens_connect_modal_without_auto_connect(monkeypatch) -> None:
+    dispatched: list[object] = []
+    pushed_screens: list[tuple[object, object]] = []
+
+    class FakeStore:
+        async def dispatch(self, message: object) -> None:
+            dispatched.append(message)
+
+    monkeypatch.setattr(textual_app, "build_store", lambda: FakeStore())
+    app = textual_app.OpcUaTuiApp()
+
+    async def fake_push_screen(screen: object, callback=None) -> None:
+        pushed_screens.append((screen, callback))
+
+    app.push_screen = fake_push_screen  # type: ignore[method-assign]
+
+    asyncio.run(app.on_mount())
+
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0][0], ConnectModalScreen)
+    assert pushed_screens[0][1] is not None
+    assert isinstance(dispatched[0], AppStarted)
+    assert isinstance(dispatched[1], ConnectModalOpened)
+    assert all(not isinstance(message, RootBrowseRequested) for message in dispatched)
+
+
+def test_handle_connect_modal_result_pushes_browser_and_browses(monkeypatch) -> None:
     dispatched: list[object] = []
     pushed_screens: list[object] = []
 
@@ -30,15 +58,18 @@ def test_app_on_mount_dispatches_startup_messages(monkeypatch) -> None:
     monkeypatch.setattr(textual_app, "build_store", lambda: FakeStore())
     app = textual_app.OpcUaTuiApp()
 
-    async def fake_push_screen(screen: object) -> None:
+    async def fake_push_screen(screen: object, callback=None) -> None:
         pushed_screens.append(screen)
 
     app.push_screen = fake_push_screen  # type: ignore[method-assign]
+    session = SessionInfo(
+        session_id="s1",
+        endpoint="opc.tcp://localhost:4840",
+        server=ServerInfo(application_name="Server"),
+    )
 
-    asyncio.run(app.on_mount())
+    asyncio.run(app._handle_connect_modal_result(session))
 
     assert len(pushed_screens) == 1
     assert isinstance(pushed_screens[0], BrowserScreen)
-    assert isinstance(dispatched[0], AppStarted)
-    assert isinstance(dispatched[1], ConnectRequested)
-    assert isinstance(dispatched[2], RootBrowseRequested)
+    assert isinstance(dispatched[0], RootBrowseRequested)

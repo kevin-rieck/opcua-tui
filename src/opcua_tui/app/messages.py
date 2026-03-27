@@ -21,6 +21,26 @@ class AppStarted(Message):
 
 
 @dataclass(slots=True, frozen=True)
+class ConnectModalOpened(Message):
+    params: ConnectParams
+
+
+@dataclass(slots=True, frozen=True)
+class ConnectModalClosed(Message):
+    pass
+
+
+@dataclass(slots=True, frozen=True)
+class ConnectFormUpdated(Message):
+    params: ConnectParams
+
+
+@dataclass(slots=True, frozen=True)
+class ConnectFormValidationFailed(Message):
+    error: str
+
+
+@dataclass(slots=True, frozen=True)
 class ConnectRequested(Message):
     params: ConnectParams
 
