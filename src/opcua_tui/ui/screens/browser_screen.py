@@ -42,23 +42,39 @@ class BrowserScreen(Screen):
         tree = self.query_one(AddressTree)
         details = self.query_one(NodeDetails)
         status = self.query_one(StatusBar)
+        last_browser = self._last_rendered_state.browser if self._last_rendered_state else None
+        tree_changed = (
+            self._last_rendered_state is None
+            or state.browser.roots != last_browser.roots
+            or state.browser.children_by_parent != last_browser.children_by_parent
+            or state.browser.expanded != last_browser.expanded
+        )
+        selection_changed = (
+            self._last_rendered_state is None
+            or state.browser.selected_node_id != last_browser.selected_node_id
+        )
 
-        self._suppress_tree_events = True
-        try:
-            tree.replace_with_state(
-                roots=state.browser.roots,
-                children_by_parent=state.browser.children_by_parent,
-                expanded=state.browser.expanded,
-            )
+        if tree_changed:
+            self._suppress_tree_events = True
+            try:
+                tree.replace_with_state(
+                    roots=state.browser.roots,
+                    children_by_parent=state.browser.children_by_parent,
+                    expanded=state.browser.expanded,
+                )
+            finally:
+                self._suppress_tree_events = False
 
-            if state.browser.selected_node_id:
-                widget_node = tree.find_node_by_id(state.browser.selected_node_id)
-                current = getattr(tree, "cursor_node", None)
-                current_id = getattr(getattr(current, "data", None), "node_id", None)
-                if widget_node is not None and current_id != state.browser.selected_node_id:
+        if selection_changed and state.browser.selected_node_id:
+            widget_node = tree.find_node_by_id(state.browser.selected_node_id)
+            current = getattr(tree, "cursor_node", None)
+            current_id = getattr(getattr(current, "data", None), "node_id", None)
+            if widget_node is not None and current_id != state.browser.selected_node_id:
+                self._suppress_tree_events = True
+                try:
                     tree.select_node(widget_node)
-        finally:
-            self._suppress_tree_events = False
+                finally:
+                    self._suppress_tree_events = False
 
         details.render_from_state(state.inspector)
         status.render_status(state.ui.status_text)

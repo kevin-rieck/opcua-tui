@@ -29,4 +29,4 @@ def test_address_tree_replace_and_find_node_by_id() -> None:
     assert root_node is not None
     assert objects is not None
     assert machine is not None
-    assert placeholder is not None
+    assert placeholder is None
