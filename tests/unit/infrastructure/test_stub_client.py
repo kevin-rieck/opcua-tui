@@ -1,0 +1,213 @@
+import asyncio
+from types import SimpleNamespace
+
+from opcua_tui.domain.models import ConnectParams
+from opcua_tui.infrastructure.opcua import stub_client
+from opcua_tui.infrastructure.opcua.stub_client import StubOpcUaClientAdapter
+
+
+def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
+    class FakeNode:
+        def __init__(
+            self,
+            nodeid: str,
+            display_name: str,
+            node_class,
+            *,
+            browse_name: str | None = None,
+            ns_index: int = 2,
+            description: str | None = None,
+            data_type: str | None = None,
+            access_level: set[str] | None = None,
+            value=None,
+            variant_type: str = "String",
+            children: list["FakeNode"] | None = None,
+        ) -> None:
+            self.nodeid = nodeid
+            self._display_name = display_name
+            self._node_class = node_class
+            self._browse_name = browse_name or display_name
+            self._ns_index = ns_index
+            self._description = description
+            self._data_type = data_type
+            self._access_level = access_level or set()
+            self._value = value
+            self._variant_type = variant_type
+            self._children = children or []
+
+        async def get_children(self):
+            return self._children
+
+        async def read_display_name(self):
+            return SimpleNamespace(Text=self._display_name)
+
+        async def read_node_class(self):
+            return self._node_class
+
+        async def read_browse_name(self):
+            return SimpleNamespace(Name=self._browse_name, NamespaceIndex=self._ns_index)
+
+        async def read_description(self):
+            return SimpleNamespace(Text=self._description)
+
+        async def read_data_type(self):
+            return self._data_type
+
+        async def read_access_level(self):
+            return self._access_level
+
+        async def read_data_value(self):
+            variant = SimpleNamespace(
+                Value=self._value, VariantType=SimpleNamespace(name=self._variant_type)
+            )
+            return SimpleNamespace(Value=variant, StatusCode=SimpleNamespace(name="Good"))
+
+        async def read_value(self):
+            return self._value
+
+    class FakeServerNode:
+        def __init__(self, product_name_node: FakeNode) -> None:
+            self._product_name_node = product_name_node
+
+        async def get_child(self, _path):
+            return self._product_name_node
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self._connected = False
+            self._node_map: dict[str, FakeNode] = {}
+
+            dtype_double = FakeNode(
+                "i=11",
+                "Double",
+                stub_client.ua.NodeClass.DataType,
+                browse_name="Double",
+                ns_index=0,
+            )
+            dtype_int32 = FakeNode(
+                "i=6", "Int32", stub_client.ua.NodeClass.DataType, browse_name="Int32", ns_index=0
+            )
+            dtype_string = FakeNode(
+                "i=12",
+                "String",
+                stub_client.ua.NodeClass.DataType,
+                browse_name="String",
+                ns_index=0,
+            )
+            self._node_map[dtype_double.nodeid] = dtype_double
+            self._node_map[dtype_int32.nodeid] = dtype_int32
+            self._node_map[dtype_string.nodeid] = dtype_string
+
+            temp = FakeNode(
+                "ns=2;s=Temperature",
+                "Temperature",
+                stub_client.ua.NodeClass.Variable,
+                data_type="i=11",
+                access_level={"CurrentRead"},
+                description="Process temperature",
+                value=42.3,
+                variant_type="Double",
+            )
+            speed = FakeNode(
+                "ns=2;s=Machine/Speed",
+                "Speed",
+                stub_client.ua.NodeClass.Variable,
+                data_type="i=6",
+                access_level={"CurrentRead"},
+                value=1200,
+                variant_type="Int32",
+            )
+            state = FakeNode(
+                "ns=2;s=Machine/State",
+                "State",
+                stub_client.ua.NodeClass.Variable,
+                data_type="i=12",
+                access_level={"CurrentRead"},
+                value="Running",
+                variant_type="String",
+            )
+            other = FakeNode(
+                "ns=2;s=AnyOther",
+                "AnyOther",
+                stub_client.ua.NodeClass.Variable,
+                data_type="i=12",
+                access_level={"CurrentRead"},
+                value="N/A",
+                variant_type="String",
+            )
+            machine = FakeNode(
+                "ns=2;s=Machine",
+                "Machine",
+                stub_client.ua.NodeClass.Object,
+                children=[speed, state],
+            )
+            objects = FakeNode(
+                "i=85",
+                "Objects",
+                stub_client.ua.NodeClass.Object,
+                ns_index=0,
+                children=[machine, temp, other],
+            )
+            root = FakeNode(
+                "i=84", "Root", stub_client.ua.NodeClass.Object, ns_index=0, children=[objects]
+            )
+
+            for node in [temp, speed, state, other, machine, objects, root]:
+                self._node_map[node.nodeid] = node
+
+            product_name = FakeNode(
+                "ns=0;s=ProductName",
+                "ProductName",
+                stub_client.ua.NodeClass.Variable,
+                ns_index=0,
+                value="Stub OPC UA Server",
+            )
+            self.nodes = SimpleNamespace(
+                root=root,
+                server=FakeServerNode(product_name),
+            )
+
+        async def connect(self):
+            self._connected = True
+
+        async def disconnect(self):
+            self._connected = False
+
+        async def get_session(self):
+            return SimpleNamespace(SessionId="fake-session")
+
+        def get_node(self, node_id):
+            key = node_id.to_string() if hasattr(node_id, "to_string") else str(node_id)
+            if key in self._node_map:
+                return self._node_map[key]
+            return FakeNode(key, key, stub_client.ua.NodeClass.Object, children=[])
+
+    monkeypatch.setattr(stub_client, "Client", FakeClient)
+
+    async def scenario() -> None:
+        client = StubOpcUaClientAdapter()
+
+        session = await client.connect(ConnectParams(endpoint="opc.tcp://localhost:4840"))
+        roots = await client.browse_children(None)
+        unknown = await client.browse_children("missing")
+        attrs = await client.read_attributes("ns=2;s=Temperature")
+        temp = await client.read_value("ns=2;s=Temperature")
+        speed = await client.read_value("ns=2;s=Machine/Speed")
+        state = await client.read_value("ns=2;s=Machine/State")
+        other = await client.read_value("ns=2;s=AnyOther")
+        await client.disconnect()
+
+        assert session.endpoint == "opc.tcp://localhost:4840"
+        assert session.server.application_name == "Stub OPC UA Server"
+        assert session.session_id == "fake-session"
+        assert len(roots) >= 1
+        assert unknown == []
+        assert attrs.node_id == "ns=2;s=Temperature"
+        assert attrs.data_type == "Double"
+        assert temp.value == 42.3
+        assert speed.value == 1200
+        assert state.value == "Running"
+        assert isinstance(other.value, str)
+
+    asyncio.run(scenario())
