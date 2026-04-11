@@ -34,3 +34,7 @@ pip-wheel-metadata/
 *.swp
 *.swo
 .internal/
+AGENTS.md
+artifacts/screens/
+tools/capture_screenshot.py
+tools/__pycache__/
