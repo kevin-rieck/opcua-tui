@@ -306,3 +306,7 @@ def test_browser_screen_focus_write_input_action(monkeypatch) -> None:
     screen.action_focus_write_input()
 
     assert panel.focused is True
+
+
+def test_browser_screen_has_log_viewer_binding() -> None:
+    assert ("ctrl+l", "show_logs", "Logs") in BrowserScreen.BINDINGS

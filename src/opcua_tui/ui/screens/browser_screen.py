@@ -13,6 +13,7 @@ from opcua_tui.app.messages import (
 )
 from opcua_tui.app.store import Store
 from opcua_tui.domain.models import AppState
+from opcua_tui.ui.screens.log_viewer_screen import LogViewerScreen
 from opcua_tui.ui.widgets.address_tree import AddressTree
 from opcua_tui.ui.widgets.node_details import NodeDetails
 from opcua_tui.ui.widgets.status_bar import StatusBar
@@ -22,6 +23,7 @@ from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 class BrowserScreen(Screen):
     BINDINGS = [
         ("w", "focus_write_input", "Write Value"),
+        ("ctrl+l", "show_logs", "Logs"),
     ]
 
     def __init__(self, store: Store) -> None:
@@ -100,6 +102,9 @@ class BrowserScreen(Screen):
 
     def action_focus_write_input(self) -> None:
         self.query_one(WriteValuePanel).focus_input()
+
+    def action_show_logs(self) -> None:
+        self.app.push_screen(LogViewerScreen())
 
     async def on_tree_node_selected(self, event) -> None:
         if self._suppress_tree_events:
