@@ -23,6 +23,8 @@ dist/
 .eggs/
 *.egg
 pip-wheel-metadata/
+artifacts/
+.tmp/
 
 # uv local state/cache
 .uv/
