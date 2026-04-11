@@ -21,6 +21,9 @@ from opcua_tui.app.messages import (
     NodeInspectionFailed,
     NodeInspectionStarted,
     NodeSelected,
+    NodeWriteFailed,
+    NodeWriteStarted,
+    NodeWriteSucceeded,
     NodeValueLoaded,
     RootBrowseFailed,
     RootBrowseStarted,
@@ -143,13 +146,21 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.browser.selected_node_id = node_id
             next_state.inspector.node_id = node_id
             next_state.inspector.loading = True
+            next_state.inspector.writing = False
+            next_state.inspector.attributes = None
+            next_state.inspector.value = None
             next_state.inspector.error = None
+            next_state.inspector.write_error = None
             next_state.ui.status_text = f"Selected {node_id}"
 
         case NodeInspectionStarted(node_id=node_id):
             next_state.inspector.node_id = node_id
             next_state.inspector.loading = True
+            next_state.inspector.writing = False
+            next_state.inspector.attributes = None
+            next_state.inspector.value = None
             next_state.inspector.error = None
+            next_state.inspector.write_error = None
             next_state.ui.status_text = f"Inspecting {node_id}"
 
         case NodeAttributesLoaded(attributes=attributes):
@@ -166,6 +177,23 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.inspector.error = error
             next_state.ui.status_text = (
                 f"Inspection failed for {node_id}: {_format_error_with_ref(error, error_ref)}"
+            )
+
+        case NodeWriteStarted(node_id=node_id):
+            next_state.inspector.writing = True
+            next_state.inspector.write_error = None
+            next_state.ui.status_text = f"Writing value for {node_id}"
+
+        case NodeWriteSucceeded(node_id=node_id):
+            next_state.inspector.writing = False
+            next_state.inspector.write_error = None
+            next_state.ui.status_text = f"Wrote value for {node_id}"
+
+        case NodeWriteFailed(node_id=node_id, error=error, error_ref=error_ref):
+            next_state.inspector.writing = False
+            next_state.inspector.write_error = _format_error_with_ref(error, error_ref)
+            next_state.ui.status_text = (
+                f"Write failed for {node_id}: {_format_error_with_ref(error, error_ref)}"
             )
 
     return next_state

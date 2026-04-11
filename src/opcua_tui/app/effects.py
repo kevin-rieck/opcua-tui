@@ -18,6 +18,10 @@ from opcua_tui.app.messages import (
     NodeInspectionFailed,
     NodeInspectionStarted,
     NodeSelected,
+    NodeWriteFailed,
+    NodeWriteRequested,
+    NodeWriteStarted,
+    NodeWriteSucceeded,
     NodeValueLoaded,
     RootBrowseFailed,
     RootBrowseRequested,
@@ -96,4 +100,19 @@ class Effects:
                     error_ref = self._log_operation_failure("inspect_node", node_id=node_id)
                     await self.dispatch(
                         NodeInspectionFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
+                    )
+
+            case NodeWriteRequested(
+                node_id=node_id, value_text=value_text, variant_hint=variant_hint
+            ):
+                await self.dispatch(NodeWriteStarted(node_id=node_id))
+                try:
+                    await self.opcua.write_value(node_id, value_text, variant_hint)
+                    value = await self.opcua.read_value(node_id)
+                    await self.dispatch(NodeValueLoaded(value=value))
+                    await self.dispatch(NodeWriteSucceeded(node_id=node_id))
+                except Exception as exc:
+                    error_ref = self._log_operation_failure("write_value", node_id=node_id)
+                    await self.dispatch(
+                        NodeWriteFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )

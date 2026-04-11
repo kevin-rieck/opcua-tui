@@ -5,6 +5,7 @@ class NodeDetails(Static):
     DEFAULT_CSS = """
     NodeDetails {
         width: 2fr;
+        height: 1fr;
         border: solid $accent;
         padding: 1 2;
     }

@@ -141,3 +141,27 @@ class NodeInspectionFailed(Message):
     node_id: str
     error: str
     error_ref: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class NodeWriteRequested(Message):
+    node_id: str
+    value_text: str
+    variant_hint: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class NodeWriteStarted(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeWriteSucceeded(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeWriteFailed(Message):
+    node_id: str
+    error: str
+    error_ref: str | None = None

@@ -16,6 +16,9 @@ from opcua_tui.app.messages import (
     NodeInspectionFailed,
     NodeInspectionStarted,
     NodeSelected,
+    NodeWriteFailed,
+    NodeWriteStarted,
+    NodeWriteSucceeded,
     NodeValueLoaded,
     RootBrowseFailed,
     RootBrowseStarted,
@@ -206,6 +209,28 @@ def test_reduce_node_selection_and_inspection_messages() -> None:
     after_failed = reduce(after_selected, NodeInspectionFailed(node_id=node_id, error="bad read"))
     assert after_failed.inspector.loading is False
     assert after_failed.inspector.error == "bad read"
+
+
+def test_reduce_node_write_messages() -> None:
+    node_id = "ns=2;s=Temperature"
+    state = AppState()
+    state.inspector.node_id = node_id
+
+    after_write_started = reduce(state, NodeWriteStarted(node_id=node_id))
+    assert after_write_started.inspector.writing is True
+    assert after_write_started.inspector.write_error is None
+
+    after_write_failed = reduce(
+        after_write_started, NodeWriteFailed(node_id=node_id, error="denied")
+    )
+    assert after_write_failed.inspector.writing is False
+    assert after_write_failed.inspector.write_error == "denied"
+    assert "Write failed" in after_write_failed.ui.status_text
+
+    after_write_succeeded = reduce(after_write_failed, NodeWriteSucceeded(node_id=node_id))
+    assert after_write_succeeded.inspector.writing is False
+    assert after_write_succeeded.inspector.write_error is None
+    assert "Wrote value" in after_write_succeeded.ui.status_text
 
 
 def test_reduce_unknown_message_keeps_state_by_value() -> None:

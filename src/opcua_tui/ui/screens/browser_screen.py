@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header
 
-from opcua_tui.app.messages import NodeCollapsed, NodeExpanded, NodeExpandRequested, NodeSelected
+from opcua_tui.app.messages import (
+    NodeCollapsed,
+    NodeExpanded,
+    NodeExpandRequested,
+    NodeSelected,
+    NodeWriteRequested,
+)
 from opcua_tui.app.store import Store
 from opcua_tui.domain.models import AppState
 from opcua_tui.ui.widgets.address_tree import AddressTree
 from opcua_tui.ui.widgets.node_details import NodeDetails
 from opcua_tui.ui.widgets.status_bar import StatusBar
+from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
 class BrowserScreen(Screen):
     BINDINGS = [
+        ("w", "focus_write_input", "Write Value"),
         ("q", "quit", "Quit"),
     ]
 
@@ -27,7 +35,9 @@ class BrowserScreen(Screen):
         yield Header()
         with Horizontal():
             yield AddressTree(id="tree")
-            yield NodeDetails(id="details")
+            with Vertical(id="inspector-pane"):
+                yield NodeDetails(id="details")
+                yield WriteValuePanel(id="write-panel")
         yield StatusBar(id="status")
         yield Footer()
 
@@ -41,6 +51,7 @@ class BrowserScreen(Screen):
     def render_state(self, state: AppState) -> None:
         tree = self.query_one(AddressTree)
         details = self.query_one(NodeDetails)
+        write_panel = self.query_one(WriteValuePanel)
         status = self.query_one(StatusBar)
         last_browser = self._last_rendered_state.browser if self._last_rendered_state else None
         tree_changed = (
@@ -77,8 +88,19 @@ class BrowserScreen(Screen):
                     self._suppress_tree_events = False
 
         details.render_from_state(state.inspector)
+        write_panel.render_from_state(state.inspector)
+        if (
+            self._last_rendered_state is not None
+            and self._last_rendered_state.inspector.writing
+            and not state.inspector.writing
+            and not state.inspector.write_error
+        ):
+            write_panel.clear_input()
         status.render_status(state.ui.status_text)
         self._last_rendered_state = state
+
+    def action_focus_write_input(self) -> None:
+        self.query_one(WriteValuePanel).focus_input()
 
     async def on_tree_node_selected(self, event) -> None:
         if self._suppress_tree_events:
@@ -112,3 +134,29 @@ class BrowserScreen(Screen):
         if not data or data.node_id in {"__root__", "__placeholder__"}:
             return
         await self.store.dispatch(NodeCollapsed(node_id=data.node_id))
+
+    async def on_write_value_panel_submit_requested(
+        self, message: WriteValuePanel.SubmitRequested
+    ) -> None:
+        value_text = message.value_text.strip()
+        if not value_text:
+            return
+
+        inspector = self.store.state.inspector
+        node_id = inspector.node_id
+        if not node_id or inspector.loading or inspector.writing:
+            return
+
+        variant_hint = None
+        if inspector.value and inspector.value.variant_type:
+            variant_hint = inspector.value.variant_type
+        elif inspector.attributes and inspector.attributes.data_type:
+            variant_hint = inspector.attributes.data_type
+
+        await self.store.dispatch(
+            NodeWriteRequested(
+                node_id=node_id,
+                value_text=value_text,
+                variant_hint=variant_hint,
+            )
+        )

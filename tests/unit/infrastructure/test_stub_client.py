@@ -22,6 +22,7 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
             value=None,
             variant_type: str = "String",
             children: list["FakeNode"] | None = None,
+            raise_bad_write: bool = False,
         ) -> None:
             self.nodeid = nodeid
             self._display_name = display_name
@@ -34,6 +35,7 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
             self._value = value
             self._variant_type = variant_type
             self._children = children or []
+            self._raise_bad_write = raise_bad_write
 
         async def get_children(self):
             return self._children
@@ -64,6 +66,16 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
 
         async def read_value(self):
             return self._value
+
+        async def write_value(self, value):
+            if self._raise_bad_write:
+                raise stub_client.ua.UaStatusCodeError(
+                    stub_client.ua.StatusCodes.BadWriteNotSupported
+                )
+            self._value = value
+
+        async def write_attribute(self, _attribute_id, data_value):
+            self._value = data_value.Value.Value
 
     class FakeServerNode:
         def __init__(self, product_name_node: FakeNode) -> None:
@@ -117,6 +129,7 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
                 access_level={"CurrentRead"},
                 value=1200,
                 variant_type="Int32",
+                raise_bad_write=True,
             )
             state = FakeNode(
                 "ns=2;s=Machine/State",
@@ -196,6 +209,10 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
         speed = await client.read_value("ns=2;s=Machine/Speed")
         state = await client.read_value("ns=2;s=Machine/State")
         other = await client.read_value("ns=2;s=AnyOther")
+        await client.write_value("ns=2;s=Machine/Speed", "1300", "Int32")
+        speed_after_write = await client.read_value("ns=2;s=Machine/Speed")
+        await client.write_value("ns=2;s=AnyOther", "true", "Boolean")
+        other_after_bool_write = await client.read_value("ns=2;s=AnyOther")
         await client.disconnect()
 
         assert session.endpoint == "opc.tcp://localhost:4840"
@@ -209,5 +226,7 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
         assert speed.value == 1200
         assert state.value == "Running"
         assert isinstance(other.value, str)
+        assert speed_after_write.value == 1300
+        assert other_after_bool_write.value is True
 
     asyncio.run(scenario())

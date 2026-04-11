@@ -77,10 +77,12 @@ class BrowserState:
 @dataclass(slots=True)
 class InspectorState:
     loading: bool = False
+    writing: bool = False
     node_id: str | None = None
     attributes: NodeAttributes | None = None
     value: DataValueView | None = None
     error: str | None = None
+    write_error: str | None = None
 
 
 @dataclass(slots=True)

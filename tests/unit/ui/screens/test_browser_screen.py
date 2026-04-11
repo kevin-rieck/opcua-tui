@@ -1,9 +1,16 @@
 import asyncio
 from types import SimpleNamespace
 
-from opcua_tui.app.messages import NodeCollapsed, NodeExpanded, NodeExpandRequested, NodeSelected
+from opcua_tui.app.messages import (
+    NodeCollapsed,
+    NodeExpanded,
+    NodeExpandRequested,
+    NodeSelected,
+    NodeWriteRequested,
+)
 from opcua_tui.domain.models import AppState, InspectorState, NodeRef, UiState
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
+from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
 class FakeStore:
@@ -54,6 +61,22 @@ class FakeStatus:
         self.text = text
 
 
+class FakeWritePanel:
+    def __init__(self) -> None:
+        self.rendered = None
+        self.focused = False
+        self.cleared = False
+
+    def render_from_state(self, inspector_state) -> None:
+        self.rendered = inspector_state
+
+    def focus_input(self) -> None:
+        self.focused = True
+
+    def clear_input(self) -> None:
+        self.cleared = True
+
+
 def test_browser_screen_on_mount_subscribes_and_renders_initial_state(monkeypatch) -> None:
     state = AppState()
     store = FakeStore(state=state)
@@ -79,6 +102,7 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
     tree = FakeTree()
     details = FakeDetails()
     status = FakeStatus()
+    write_panel = FakeWritePanel()
 
     def fake_query_one(widget_type):
         name = widget_type.__name__
@@ -86,6 +110,8 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
             return tree
         if name == "NodeDetails":
             return details
+        if name == "WriteValuePanel":
+            return write_panel
         return status
 
     monkeypatch.setattr(screen, "query_one", fake_query_one)
@@ -95,6 +121,7 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
     assert tree.replace_args is not None
     assert tree.selected is not None
     assert details.rendered is state.inspector
+    assert write_panel.rendered is state.inspector
     assert status.text == "ok"
 
 
@@ -109,6 +136,7 @@ def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(mon
     tree = FakeTree()
     details = FakeDetails()
     status = FakeStatus()
+    write_panel = FakeWritePanel()
 
     def fake_query_one(widget_type):
         name = widget_type.__name__
@@ -116,6 +144,8 @@ def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(mon
             return tree
         if name == "NodeDetails":
             return details
+        if name == "WriteValuePanel":
+            return write_panel
         return status
 
     monkeypatch.setattr(screen, "query_one", fake_query_one)
@@ -131,7 +161,36 @@ def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(mon
 
     assert tree.replace_calls == 1
     assert details.rendered is next_state.inspector
+    assert write_panel.rendered is next_state.inspector
     assert status.text == "inspecting"
+
+
+def test_browser_screen_render_state_clears_write_input_after_success(monkeypatch) -> None:
+    previous = AppState(inspector=InspectorState(node_id="n1", writing=True))
+    current = AppState(inspector=InspectorState(node_id="n1", writing=False))
+    store = FakeStore(state=current)
+    screen = BrowserScreen(store)
+    tree = FakeTree()
+    details = FakeDetails()
+    status = FakeStatus()
+    write_panel = FakeWritePanel()
+
+    def fake_query_one(widget_type):
+        name = widget_type.__name__
+        if name == "AddressTree":
+            return tree
+        if name == "NodeDetails":
+            return details
+        if name == "WriteValuePanel":
+            return write_panel
+        return status
+
+    monkeypatch.setattr(screen, "query_one", fake_query_one)
+    screen._last_rendered_state = previous
+
+    screen.render_state(current)
+
+    assert write_panel.cleared is True
 
 
 def test_browser_screen_node_selected_dispatches_public_message() -> None:
@@ -210,3 +269,40 @@ def test_browser_screen_node_collapsed_dispatches_public_message() -> None:
 
     assert len(store.dispatched) == 1
     assert isinstance(store.dispatched[0], NodeCollapsed)
+
+
+def test_browser_screen_write_submit_dispatches_public_message() -> None:
+    state = AppState(inspector=InspectorState(node_id="n1"))
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    message = WriteValuePanel.SubmitRequested(value_text="42")
+
+    asyncio.run(screen.on_write_value_panel_submit_requested(message))
+
+    assert len(store.dispatched) == 1
+    assert isinstance(store.dispatched[0], NodeWriteRequested)
+    assert store.dispatched[0].node_id == "n1"
+    assert store.dispatched[0].value_text == "42"
+
+
+def test_browser_screen_write_submit_ignores_invalid_state() -> None:
+    state = AppState(inspector=InspectorState(node_id=None))
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    message = WriteValuePanel.SubmitRequested(value_text=" ")
+
+    asyncio.run(screen.on_write_value_panel_submit_requested(message))
+
+    assert store.dispatched == []
+
+
+def test_browser_screen_focus_write_input_action(monkeypatch) -> None:
+    state = AppState()
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    panel = FakeWritePanel()
+    monkeypatch.setattr(screen, "query_one", lambda _t: panel)
+
+    screen.action_focus_write_input()
+
+    assert panel.focused is True

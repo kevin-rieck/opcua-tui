@@ -139,6 +139,21 @@ class StubOpcUaClientAdapter:
             status_code=status_code,
         )
 
+    async def write_value(
+        self, node_id: str, value_text: str, variant_hint: str | None = None
+    ) -> None:
+        client = self._require_client()
+        normalized_node_id = self._normalize_node_id(node_id)
+        node = client.get_node(normalized_node_id)
+        coerced_value = self._coerce_write_value(value_text, variant_hint)
+        try:
+            await node.write_value(coerced_value)
+        except ua.UaStatusCodeError as exc:
+            # Some servers reject writes that include status/timestamps in DataValue.
+            if not self._is_bad_write_not_supported(exc):
+                raise
+            await self._write_value_only(node, coerced_value)
+
     def _require_client(self) -> Client:
         if self._client is None:
             raise RuntimeError("Not connected. Call connect() first.")
@@ -271,3 +286,72 @@ class StubOpcUaClientAdapter:
             return str(access_level)
         except Exception:
             return None
+
+    def _coerce_write_value(self, value_text: str, variant_hint: str | None) -> Any:
+        normalized = value_text.strip()
+        if not normalized:
+            raise ValueError("Value is required.")
+
+        hint = (variant_hint or "").strip().lower()
+        if hint:
+            if "bool" in hint:
+                return self._parse_bool(normalized)
+            if any(token in hint for token in ("float", "double")):
+                return float(normalized)
+            if any(
+                token in hint
+                for token in (
+                    "int",
+                    "byte",
+                    "sbyte",
+                    "uint",
+                    "short",
+                    "long",
+                    "word",
+                    "dword",
+                )
+            ):
+                return int(normalized, 10)
+            if any(token in hint for token in ("string", "char", "text")):
+                return normalized
+
+        lowered = normalized.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+
+        try:
+            return int(normalized, 10)
+        except ValueError:
+            pass
+
+        try:
+            return float(normalized)
+        except ValueError:
+            return normalized
+
+    def _parse_bool(self, value: str) -> bool:
+        lowered = value.lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+        raise ValueError("Boolean values must be true/false, 1/0, yes/no, or on/off.")
+
+    async def _write_value_only(self, node: Any, value: Any) -> None:
+        if not hasattr(node, "write_attribute"):
+            raise RuntimeError("Server rejected the write format and no fallback is available.")
+        data_value = ua.DataValue(
+            Value=ua.Variant(value),
+            StatusCode_=None,
+            SourceTimestamp=None,
+            ServerTimestamp=None,
+            SourcePicoseconds=None,
+            ServerPicoseconds=None,
+        )
+        await node.write_attribute(ua.AttributeIds.Value, data_value)
+
+    def _is_bad_write_not_supported(self, exc: ua.UaStatusCodeError) -> bool:
+        code = getattr(exc, "code", None)
+        if code == ua.StatusCodes.BadWriteNotSupported:
+            return True
+        return "BadWriteNotSupported" in repr(exc)
