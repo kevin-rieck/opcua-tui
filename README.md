@@ -10,7 +10,8 @@ uv run opcua-tui
 ```
 
 1. Enter an endpoint in the connect modal (for local testing: `opc.tcp://localhost:48010`).
-2. Press `Enter` (or select `Connect`).
+2. Choose security/auth options in the modal (or keep defaults for insecure anonymous).
+3. Press `Enter` (or select `Connect`).
 3. Browse the tree, select a node to inspect, and use the write panel to update values.
 4. Press `Ctrl+L` to open the log viewer.
 
@@ -30,7 +31,31 @@ uv run opcua-tui
 
 - Connect UI currently supports only insecure anonymous connections.
 - Endpoint must start with `opc.tcp://`.
-- Security mode/policy and credential/certificate inputs are not yet exposed in the UI.
+- Server-certificate trust management UI is not yet implemented (manual trust/retry flow).
+- Certificate user identity auth is not yet implemented (username/password is supported).
+
+## Connect Modal (Secure)
+
+The connect modal supports secure channel and authentication choices:
+
+- `Endpoint`: OPC UA endpoint URL, for example `opc.tcp://localhost:48010`
+- `Security Mode`: `None`, `Sign`, `SignAndEncrypt`
+- `Security Policy`: `None`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss` (plus legacy options)
+- `Auth Mode`: `Anonymous` or `Username/Password`
+- `Username` / `Password`: shown only for username auth
+- `Client Certificate Path` / `Client Private Key Path`: optional overrides
+
+If certificate/key paths are omitted for secure modes, the app auto-generates and reuses client material under:
+
+- `~/.opcua-tui/pki/own/client_certificate.der`
+- `~/.opcua-tui/pki/own/client_private_key.pem`
+
+Validation rules:
+
+- `Security Mode=None` requires `Security Policy=None`
+- Secure modes require a non-`None` policy
+- Username/password are required only for username auth
+- Certificate and key override paths must be provided together
 
 ## Key Bindings
 

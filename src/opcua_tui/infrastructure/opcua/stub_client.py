@@ -93,9 +93,10 @@ class StubOpcUaClientAdapter:
         if policy is None:
             raise ValueError(f"Unsupported security policy: {params.security_policy.value}")
 
-        material = self._pki_store.ensure_client_certificate_material(
+        material = await self._pki_store.ensure_client_certificate_material(
             certificate_path=params.certificate_path,
             private_key_path=params.private_key_path,
+            app_uri=getattr(client, "application_uri", ""),
         )
         self._validate_private_key_unencrypted(material.private_key_path)
         await client.set_security(

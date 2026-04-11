@@ -30,13 +30,15 @@ class ClientPkiStore:
         for folder in ("own", "trusted", "rejected", "issuers"):
             (self.root / folder).mkdir(parents=True, exist_ok=True)
 
-    def ensure_client_certificate_material(
+    async def ensure_client_certificate_material(
         self,
         *,
         certificate_path: str = "",
         private_key_path: str = "",
+        app_uri: str = "",
     ) -> ClientCertificateMaterial:
         self.ensure_structure()
+        explicit_paths = bool(certificate_path.strip() or private_key_path.strip())
 
         cert_path, key_path = self._resolve_paths(
             certificate_path=certificate_path,
@@ -46,6 +48,13 @@ class ClientPkiStore:
         key_exists = key_path.exists()
 
         if cert_exists and key_exists:
+            if not explicit_paths:
+                # For managed default certs, let asyncua validate/regenerate on URI/validity mismatch.
+                await self._generate_client_certificate(
+                    key_path=key_path,
+                    cert_path=cert_path,
+                    app_uri=app_uri.strip() or "urn:opcua-tui:client",
+                )
             return ClientCertificateMaterial(
                 certificate_path=cert_path,
                 private_key_path=key_path,
@@ -57,7 +66,11 @@ class ClientPkiStore:
                 f"Certificate and private key must both exist. cert={cert_path} key={key_path}"
             )
 
-        self._generate_client_certificate(key_path=key_path, cert_path=cert_path)
+        await self._generate_client_certificate(
+            key_path=key_path,
+            cert_path=cert_path,
+            app_uri=app_uri.strip() or "urn:opcua-tui:client",
+        )
         return ClientCertificateMaterial(
             certificate_path=cert_path,
             private_key_path=key_path,
@@ -86,13 +99,19 @@ class ClientPkiStore:
             self.root / "own" / "client_private_key.pem",
         )
 
-    def _generate_client_certificate(self, *, key_path: Path, cert_path: Path) -> None:
+    async def _generate_client_certificate(
+        self,
+        *,
+        key_path: Path,
+        cert_path: Path,
+        app_uri: str,
+    ) -> None:
         key_path.parent.mkdir(parents=True, exist_ok=True)
         cert_path.parent.mkdir(parents=True, exist_ok=True)
-        cert_gen.setup_self_signed_certificate(
+        await cert_gen.setup_self_signed_certificate(
             key_file=key_path,
             cert_file=cert_path,
-            app_uri="urn:opcua-tui:client",
+            app_uri=app_uri,
             host_name=socket.gethostname(),
             cert_use=[ExtendedKeyUsageOID.CLIENT_AUTH],
             subject_attrs={"commonName": "OPC UA TUI Client"},

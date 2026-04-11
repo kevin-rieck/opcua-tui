@@ -297,6 +297,7 @@ def test_stub_client_connect_configures_secure_channel_and_username_auth(monkeyp
     class FakeSecureClient:
         def __init__(self, url: str) -> None:
             self.url = url
+            self.application_uri = "urn:test:secure-client"
             self.security_calls: list[dict[str, object]] = []
             self.user = None
             self.password = None
@@ -329,11 +330,12 @@ def test_stub_client_connect_configures_secure_channel_and_username_auth(monkeyp
             raise AssertionError(f"Unexpected get_node call: {node_id}")
 
     class FakePkiStore:
-        def ensure_client_certificate_material(
-            self, *, certificate_path: str, private_key_path: str
+        async def ensure_client_certificate_material(
+            self, *, certificate_path: str, private_key_path: str, app_uri: str
         ):
             assert certificate_path == ""
             assert private_key_path == ""
+            assert app_uri == "urn:test:secure-client"
             return ClientCertificateMaterial(
                 certificate_path=Path("client.der"),
                 private_key_path=Path("client.pem"),

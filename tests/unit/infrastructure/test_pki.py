@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,9 @@ def test_pki_store_generates_and_reuses_material(
 ) -> None:
     calls: list[tuple[Path, Path]] = []
 
-    def fake_generate(self, *, key_path: Path, cert_path: Path) -> None:
+    async def fake_generate(self, *, key_path: Path, cert_path: Path, app_uri: str) -> None:
         calls.append((key_path, cert_path))
+        assert app_uri == "urn:opcua-tui:client"
         key_path.write_text("-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
         cert_path.write_bytes(b"fake-cert")
 
@@ -22,22 +24,25 @@ def test_pki_store_generates_and_reuses_material(
     )
 
     store = ClientPkiStore(root=tmp_path / "pki")
-    first = store.ensure_client_certificate_material()
-    second = store.ensure_client_certificate_material()
+    first = asyncio.run(store.ensure_client_certificate_material())
+    second = asyncio.run(store.ensure_client_certificate_material())
 
     assert first.certificate_path.exists()
     assert first.private_key_path.exists()
     assert first.fingerprint_sha256 == "ABC123"
     assert second.certificate_path == first.certificate_path
     assert second.private_key_path == first.private_key_path
-    assert calls == [(first.private_key_path, first.certificate_path)]
+    assert calls == [
+        (first.private_key_path, first.certificate_path),
+        (first.private_key_path, first.certificate_path),
+    ]
 
 
 def test_pki_store_rejects_half_provided_paths(tmp_path: Path) -> None:
     store = ClientPkiStore(root=tmp_path / "pki")
 
     with pytest.raises(ValueError, match="Private key path is required"):
-        store.ensure_client_certificate_material(certificate_path="client.der")
+        asyncio.run(store.ensure_client_certificate_material(certificate_path="client.der"))
 
     with pytest.raises(ValueError, match="Certificate path is required"):
-        store.ensure_client_certificate_material(private_key_path="client.key")
+        asyncio.run(store.ensure_client_certificate_material(private_key_path="client.key"))
