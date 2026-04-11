@@ -88,7 +88,9 @@ class AddressTree(Tree[TreeNodeData]):
                 self._ensure_placeholder(child_widget_node)
             elif target.has_children:
                 self._remove_placeholders(child_widget_node)
-                self._sync_children(child_widget_node, loaded_children, children_by_parent, expanded)
+                self._sync_children(
+                    child_widget_node, loaded_children, children_by_parent, expanded
+                )
             else:
                 self._remove_all_children(child_widget_node)
                 self._set_expanded_state(child_widget_node, expanded=False)
