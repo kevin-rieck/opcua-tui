@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from opcua_tui.domain.models import ConnectParams
 from opcua_tui.infrastructure.opcua import stub_client
 from opcua_tui.infrastructure.opcua.stub_client import StubOpcUaClientAdapter
@@ -67,12 +69,14 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
         async def read_value(self):
             return self._value
 
-        async def write_value(self, value):
+        async def write_value(self, value, variant_type=None):
             if self._raise_bad_write:
                 raise stub_client.ua.UaStatusCodeError(
                     stub_client.ua.StatusCodes.BadWriteNotSupported
                 )
             self._value = value
+            if variant_type is not None:
+                self._variant_type = variant_type.name
 
         async def write_attribute(self, _attribute_id, data_value):
             self._value = data_value.Value.Value
@@ -228,5 +232,59 @@ def test_stub_client_public_methods_return_domain_models(monkeypatch) -> None:
         assert isinstance(other.value, str)
         assert speed_after_write.value == 1300
         assert other_after_bool_write.value is True
+
+    asyncio.run(scenario())
+
+
+def test_stub_client_coerce_write_value_supports_int16_and_float() -> None:
+    client = StubOpcUaClientAdapter()
+
+    value_i16, type_i16 = client._coerce_write_value("32767", "Int16")
+    value_f32, type_f32 = client._coerce_write_value("12.5", "Float")
+
+    assert value_i16 == 32767
+    assert type_i16 == stub_client.ua.VariantType.Int16
+    assert value_f32 == 12.5
+    assert type_f32 == stub_client.ua.VariantType.Float
+
+
+def test_stub_client_coerce_write_value_rejects_out_of_range_int16() -> None:
+    client = StubOpcUaClientAdapter()
+
+    with pytest.raises(ValueError, match="Int16 must be between -32768 and 32767"):
+        client._coerce_write_value("40000", "Int16")
+
+
+def test_stub_client_write_value_passes_explicit_variant_type(monkeypatch) -> None:
+    class FakeNode:
+        def __init__(self) -> None:
+            self.last_call: tuple[object, object | None] | None = None
+
+        async def write_value(self, value, variant_type=None):
+            self.last_call = (value, variant_type)
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self.node = FakeNode()
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        def get_node(self, _node_id):
+            return self.node
+
+    monkeypatch.setattr(stub_client, "Client", FakeClient)
+
+    async def scenario() -> None:
+        client = StubOpcUaClientAdapter()
+        await client.connect(ConnectParams(endpoint="opc.tcp://localhost:4840"))
+        fake_node = client._require_client().get_node("ns=2;s=F32")
+        await client.write_value("ns=2;s=F32", "1.25", "Float")
+        assert fake_node.last_call == (1.25, stub_client.ua.VariantType.Float)
+        await client.disconnect()
 
     asyncio.run(scenario())

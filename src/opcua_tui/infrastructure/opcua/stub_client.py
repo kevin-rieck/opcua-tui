@@ -145,14 +145,17 @@ class StubOpcUaClientAdapter:
         client = self._require_client()
         normalized_node_id = self._normalize_node_id(node_id)
         node = client.get_node(normalized_node_id)
-        coerced_value = self._coerce_write_value(value_text, variant_hint)
+        coerced_value, variant_type = self._coerce_write_value(value_text, variant_hint)
         try:
-            await node.write_value(coerced_value)
+            if variant_type is None:
+                await node.write_value(coerced_value)
+            else:
+                await node.write_value(coerced_value, variant_type)
         except ua.UaStatusCodeError as exc:
             # Some servers reject writes that include status/timestamps in DataValue.
             if not self._is_bad_write_not_supported(exc):
                 raise
-            await self._write_value_only(node, coerced_value)
+            await self._write_value_only(node, coerced_value, variant_type)
 
     def _require_client(self) -> Client:
         if self._client is None:
@@ -287,47 +290,113 @@ class StubOpcUaClientAdapter:
         except Exception:
             return None
 
-    def _coerce_write_value(self, value_text: str, variant_hint: str | None) -> Any:
+    def _coerce_write_value(
+        self, value_text: str, variant_hint: str | None
+    ) -> tuple[Any, ua.VariantType | None]:
         normalized = value_text.strip()
         if not normalized:
             raise ValueError("Value is required.")
 
-        hint = (variant_hint or "").strip().lower()
-        if hint:
-            if "bool" in hint:
-                return self._parse_bool(normalized)
-            if any(token in hint for token in ("float", "double")):
-                return float(normalized)
-            if any(
-                token in hint
-                for token in (
-                    "int",
-                    "byte",
-                    "sbyte",
-                    "uint",
-                    "short",
-                    "long",
-                    "word",
-                    "dword",
-                )
-            ):
-                return int(normalized, 10)
-            if any(token in hint for token in ("string", "char", "text")):
-                return normalized
+        variant_type = self._resolve_variant_type(variant_hint)
+        if variant_type is not None:
+            return self._coerce_value_for_variant(normalized, variant_type), variant_type
 
         lowered = normalized.lower()
         if lowered in {"true", "false"}:
-            return lowered == "true"
+            return lowered == "true", None
 
         try:
-            return int(normalized, 10)
+            return int(normalized, 10), None
         except ValueError:
             pass
 
         try:
-            return float(normalized)
+            return float(normalized), None
         except ValueError:
-            return normalized
+            return normalized, None
+
+    def _resolve_variant_type(self, variant_hint: str | None) -> ua.VariantType | None:
+        hint = (variant_hint or "").strip().lower()
+        if not hint:
+            return None
+
+        alias_map = {
+            "bool": ua.VariantType.Boolean,
+            "boolean": ua.VariantType.Boolean,
+            "sbyte": ua.VariantType.SByte,
+            "byte": ua.VariantType.Byte,
+            "int16": ua.VariantType.Int16,
+            "short": ua.VariantType.Int16,
+            "uint16": ua.VariantType.UInt16,
+            "word": ua.VariantType.UInt16,
+            "int32": ua.VariantType.Int32,
+            "dword": ua.VariantType.UInt32,
+            "uint32": ua.VariantType.UInt32,
+            "int64": ua.VariantType.Int64,
+            "long": ua.VariantType.Int64,
+            "uint64": ua.VariantType.UInt64,
+            "float": ua.VariantType.Float,
+            "single": ua.VariantType.Float,
+            "double": ua.VariantType.Double,
+            "string": ua.VariantType.String,
+            "char": ua.VariantType.String,
+            "text": ua.VariantType.String,
+        }
+        if hint in alias_map:
+            return alias_map[hint]
+
+        if "bool" in hint:
+            return ua.VariantType.Boolean
+        if "float" in hint:
+            return ua.VariantType.Float
+        if "double" in hint:
+            return ua.VariantType.Double
+        if "uint64" in hint:
+            return ua.VariantType.UInt64
+        if "int64" in hint:
+            return ua.VariantType.Int64
+        if "uint32" in hint:
+            return ua.VariantType.UInt32
+        if "int32" in hint:
+            return ua.VariantType.Int32
+        if "uint16" in hint:
+            return ua.VariantType.UInt16
+        if "int16" in hint:
+            return ua.VariantType.Int16
+        if "sbyte" in hint:
+            return ua.VariantType.SByte
+        if "byte" in hint:
+            return ua.VariantType.Byte
+        if any(token in hint for token in ("string", "char", "text")):
+            return ua.VariantType.String
+        return None
+
+    def _coerce_value_for_variant(self, value_text: str, variant_type: ua.VariantType) -> Any:
+        if variant_type == ua.VariantType.Boolean:
+            return self._parse_bool(value_text)
+        if variant_type == ua.VariantType.SByte:
+            return self._parse_bounded_int(value_text, -128, 127, "SByte")
+        if variant_type == ua.VariantType.Byte:
+            return self._parse_bounded_int(value_text, 0, 255, "Byte")
+        if variant_type == ua.VariantType.Int16:
+            return self._parse_bounded_int(value_text, -32768, 32767, "Int16")
+        if variant_type == ua.VariantType.UInt16:
+            return self._parse_bounded_int(value_text, 0, 65535, "UInt16")
+        if variant_type == ua.VariantType.Int32:
+            return self._parse_bounded_int(value_text, -2147483648, 2147483647, "Int32")
+        if variant_type == ua.VariantType.UInt32:
+            return self._parse_bounded_int(value_text, 0, 4294967295, "UInt32")
+        if variant_type == ua.VariantType.Int64:
+            return self._parse_bounded_int(
+                value_text, -9223372036854775808, 9223372036854775807, "Int64"
+            )
+        if variant_type == ua.VariantType.UInt64:
+            return self._parse_bounded_int(value_text, 0, 18446744073709551615, "UInt64")
+        if variant_type in {ua.VariantType.Float, ua.VariantType.Double}:
+            return float(value_text)
+        if variant_type == ua.VariantType.String:
+            return value_text
+        raise ValueError(f"Writing values as {variant_type.name} is not yet supported.")
 
     def _parse_bool(self, value: str) -> bool:
         lowered = value.lower()
@@ -337,11 +406,21 @@ class StubOpcUaClientAdapter:
             return False
         raise ValueError("Boolean values must be true/false, 1/0, yes/no, or on/off.")
 
-    async def _write_value_only(self, node: Any, value: Any) -> None:
+    def _parse_bounded_int(self, value_text: str, minimum: int, maximum: int, label: str) -> int:
+        value = int(value_text, 10)
+        if value < minimum or value > maximum:
+            raise ValueError(f"{label} must be between {minimum} and {maximum}.")
+        return value
+
+    async def _write_value_only(
+        self, node: Any, value: Any, variant_type: ua.VariantType | None = None
+    ) -> None:
         if not hasattr(node, "write_attribute"):
             raise RuntimeError("Server rejected the write format and no fallback is available.")
         data_value = ua.DataValue(
-            Value=ua.Variant(value),
+            Value=ua.Variant(value, variant_type)
+            if variant_type is not None
+            else ua.Variant(value),
             StatusCode_=None,
             SourceTimestamp=None,
             ServerTimestamp=None,
