@@ -22,7 +22,6 @@ from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 class BrowserScreen(Screen):
     BINDINGS = [
         ("w", "focus_write_input", "Write Value"),
-        ("q", "quit", "Quit"),
     ]
 
     def __init__(self, store: Store) -> None:

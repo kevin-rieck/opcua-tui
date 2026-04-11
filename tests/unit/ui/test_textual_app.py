@@ -62,3 +62,9 @@ def test_handle_connect_modal_result_pushes_browser_and_dispatches_state_message
     assert isinstance(pushed_screens[0], BrowserScreen)
     assert isinstance(dispatched[0], ConnectionSucceeded)
     assert isinstance(dispatched[1], RootBrowseRequested)
+
+
+def test_app_has_high_priority_quit_binding_for_q() -> None:
+    binding = next(b for b in textual_app.OpcUaTuiApp.BINDINGS if b.key == "q")
+    assert binding.action == "quit"
+    assert binding.priority is True

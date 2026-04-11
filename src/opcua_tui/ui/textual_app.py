@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from textual.app import App
+from textual.binding import Binding
 
 from opcua_tui.app.bootstrap import build_store
 from opcua_tui.app.messages import ConnectionSucceeded, RootBrowseRequested
@@ -16,6 +17,10 @@ from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
 
 
 class OpcUaTuiApp(App[None]):
+    BINDINGS = [
+        Binding("q", "quit", "Quit", priority=True),
+    ]
+
     CSS = """
     Screen {
         layout: vertical;
