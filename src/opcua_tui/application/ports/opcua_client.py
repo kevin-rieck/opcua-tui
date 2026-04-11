@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from opcua_tui.domain.models import (
@@ -8,10 +9,17 @@ from opcua_tui.domain.models import (
     NodeAttributes,
     NodeRef,
     SessionInfo,
+    SubscriptionValueUpdate,
 )
 
 
 class OpcUaClientPort(Protocol):
+    async def start_subscription_stream(
+        self, on_update: Callable[[SubscriptionValueUpdate], Awaitable[None]]
+    ) -> None: ...
+    async def stop_subscription_stream(self) -> None: ...
+    async def subscribe_value(self, node_id: str) -> str: ...
+    async def unsubscribe_value(self, node_id: str) -> None: ...
     async def connect(self, params: ConnectParams) -> SessionInfo: ...
     async def disconnect(self) -> None: ...
     async def browse_children(self, node_id: str | None) -> list[NodeRef]: ...

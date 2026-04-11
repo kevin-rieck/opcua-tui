@@ -9,6 +9,8 @@ from opcua_tui.app.messages import (
     NodeExpanded,
     NodeExpandRequested,
     NodeSelected,
+    NodeSubscribeRequested,
+    NodeUnsubscribeRequested,
     NodeWriteRequested,
 )
 from opcua_tui.app.store import Store
@@ -17,6 +19,8 @@ from opcua_tui.ui.screens.log_viewer_screen import LogViewerScreen
 from opcua_tui.ui.widgets.address_tree import AddressTree
 from opcua_tui.ui.widgets.node_details import NodeDetails
 from opcua_tui.ui.widgets.status_bar import StatusBar
+from opcua_tui.ui.widgets.subscription_panel import SubscriptionPanel
+from opcua_tui.ui.widgets.watchlist_panel import WatchlistPanel
 from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
@@ -38,7 +42,9 @@ class BrowserScreen(Screen):
             yield AddressTree(id="tree")
             with Vertical(id="inspector-pane"):
                 yield NodeDetails(id="details")
+                yield SubscriptionPanel(id="subscription-panel")
                 yield WriteValuePanel(id="write-panel")
+            yield WatchlistPanel(id="watchlist-panel")
         yield StatusBar(id="status")
         yield Footer()
 
@@ -52,7 +58,9 @@ class BrowserScreen(Screen):
     def render_state(self, state: AppState) -> None:
         tree = self.query_one(AddressTree)
         details = self.query_one(NodeDetails)
+        subscription_panel = self.query_one(SubscriptionPanel)
         write_panel = self.query_one(WriteValuePanel)
+        watchlist = self.query_one(WatchlistPanel)
         status = self.query_one(StatusBar)
         last_browser = self._last_rendered_state.browser if self._last_rendered_state else None
         tree_changed = (
@@ -60,6 +68,8 @@ class BrowserScreen(Screen):
             or state.browser.roots != last_browser.roots
             or state.browser.children_by_parent != last_browser.children_by_parent
             or state.browser.expanded != last_browser.expanded
+            or set(state.subscriptions.items_by_node_id.keys())
+            != set(self._last_rendered_state.subscriptions.items_by_node_id.keys())
         )
         selection_changed = (
             self._last_rendered_state is None
@@ -69,10 +79,12 @@ class BrowserScreen(Screen):
         if tree_changed:
             self._suppress_tree_events = True
             try:
+                subscribed_node_ids = set(state.subscriptions.items_by_node_id.keys())
                 tree.replace_with_state(
                     roots=state.browser.roots,
                     children_by_parent=state.browser.children_by_parent,
                     expanded=state.browser.expanded,
+                    subscribed_node_ids=subscribed_node_ids,
                 )
             finally:
                 self._suppress_tree_events = False
@@ -89,7 +101,9 @@ class BrowserScreen(Screen):
                     self._suppress_tree_events = False
 
         details.render_from_state(state.inspector)
+        subscription_panel.render_from_state(state.inspector, state.subscriptions)
         write_panel.render_from_state(state.inspector)
+        watchlist.render_from_state(state.subscriptions)
         if (
             self._last_rendered_state is not None
             and self._last_rendered_state.inspector.writing
@@ -164,3 +178,18 @@ class BrowserScreen(Screen):
                 variant_hint=variant_hint,
             )
         )
+
+    async def on_subscription_panel_subscribe_requested(
+        self, message: SubscriptionPanel.SubscribeRequested
+    ) -> None:
+        node_id = message.node_id
+        if node_id in self.store.state.subscriptions.items_by_node_id:
+            return
+        await self.store.dispatch(
+            NodeSubscribeRequested(node_id=node_id, display_name=message.display_name)
+        )
+
+    async def on_subscription_panel_unsubscribe_requested(
+        self, message: SubscriptionPanel.UnsubscribeRequested
+    ) -> None:
+        await self.store.dispatch(NodeUnsubscribeRequested(node_id=message.node_id))

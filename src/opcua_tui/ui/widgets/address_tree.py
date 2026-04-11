@@ -43,9 +43,11 @@ class AddressTree(Tree[TreeNodeData]):
         roots: Iterable[NodeRef],
         children_by_parent: dict[str, list[NodeRef]],
         expanded: set[str],
+        subscribed_node_ids: set[str] | None = None,
     ) -> None:
+        subscribed = subscribed_node_ids or set()
         self._init_root()
-        self._sync_children(self.root, list(roots), children_by_parent, expanded)
+        self._sync_children(self.root, list(roots), children_by_parent, expanded, subscribed)
         self._reindex_nodes()
 
     def _sync_children(
@@ -54,6 +56,7 @@ class AddressTree(Tree[TreeNodeData]):
         target_children: list[NodeRef],
         children_by_parent: dict[str, list[NodeRef]],
         expanded: set[str],
+        subscribed_node_ids: set[str],
     ) -> None:
         existing_by_id: dict[str, object] = {}
         for child in list(parent_widget_node.children):
@@ -69,15 +72,20 @@ class AddressTree(Tree[TreeNodeData]):
 
         for target in target_children:
             child_widget_node = existing_by_id.get(target.node_id)
+            label = (
+                f"[*] {target.display_name}"
+                if target.node_id in subscribed_node_ids
+                else target.display_name
+            )
             if child_widget_node is None:
                 child_widget_node = parent_widget_node.add(
-                    target.display_name,
+                    label,
                     data=TreeNodeData(node_id=target.node_id, has_children=target.has_children),
                     expand=False,
                     allow_expand=target.has_children,
                 )
             else:
-                child_widget_node.set_label(target.display_name)
+                child_widget_node.set_label(label)
                 child_widget_node.data = TreeNodeData(
                     node_id=target.node_id, has_children=target.has_children
                 )
@@ -89,7 +97,11 @@ class AddressTree(Tree[TreeNodeData]):
             elif target.has_children:
                 self._remove_placeholders(child_widget_node)
                 self._sync_children(
-                    child_widget_node, loaded_children, children_by_parent, expanded
+                    child_widget_node,
+                    loaded_children,
+                    children_by_parent,
+                    expanded,
+                    subscribed_node_ids,
                 )
             else:
                 self._remove_all_children(child_widget_node)

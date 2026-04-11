@@ -12,6 +12,18 @@ from opcua_tui.domain.models import (
 
 
 class FakeAdapter:
+    async def start_subscription_stream(self, on_update) -> None:
+        return None
+
+    async def stop_subscription_stream(self) -> None:
+        return None
+
+    async def subscribe_value(self, node_id: str) -> str:
+        return node_id
+
+    async def unsubscribe_value(self, node_id: str) -> None:
+        return None
+
     async def connect(self, params: ConnectParams) -> SessionInfo:
         return SessionInfo(
             session_id="fake-session",
@@ -49,6 +61,10 @@ def test_fake_adapter_satisfies_protocol_surface() -> None:
         roots = await port.browse_children(None)
         attrs = await port.read_attributes("n1")
         value = await port.read_value("n1")
+        await port.start_subscription_stream(lambda _u: None)
+        await port.subscribe_value("n1")
+        await port.unsubscribe_value("n1")
+        await port.stop_subscription_stream()
         await port.disconnect()
 
         assert session.endpoint == "opc.tcp://localhost:4840"

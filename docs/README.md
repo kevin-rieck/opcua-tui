@@ -12,15 +12,15 @@ The first version focuses on:
 - displaying metadata and current value
 - preparing the foundation for subscriptions and later features
 
-## Architectural direction
-The project uses:
-- **Textual** for the terminal UI
-- **MVU-style state management** for predictable updates
-- **ports and adapters** to isolate OPC UA access and persistence
-- **typed domain models** for clarity and maintainability
+## Architecture
+Current architecture decision and rationale:
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- [`ARCHITECTURE_REVIEW.md`](./ARCHITECTURE_REVIEW.md)
 
-## Why this shape
-This app is event-driven and async by nature. Separating state transitions from IO makes it easier to test, easier to reason about, and easier to extend.
+Short version:
+- keep domain models and ports/adapters
+- prefer Textual-native `reactive` state + `@on` + `@work`
+- phase out global `store/reducer/effects` runtime plumbing
 
 ## Planned MVP
 - connect to OPC UA server
@@ -35,30 +35,16 @@ This app is event-driven and async by nature. Separating state transitions from 
 
 ```text
 src/opcua_tui/
-  app/             # store, reducer, messages, effects
-  application/     # use cases and ports
+  app/             # legacy store/reducer/effects (to be phased out)
+  application/     # ports and use-case services
   domain/          # shared models and enums
   infrastructure/  # adapters for opcua, persistence, logging
   ui/              # textual app, screens, widgets
 ```
 
-## Development rules
-- reducers must stay pure
-- UI code must not call OPC UA directly
-- effects handle async work
-- adapters implement ports
-- new features should add typed messages and tests
-
-## Suggested getting started steps
-1. Create the package skeleton.
-2. Implement state, messages, reducer, and store.
-3. Add a stub OPC UA adapter.
-4. Build a minimal Textual layout.
-5. Wire connect and root browse flow.
-6. Add node inspection.
-7. Replace the stub adapter with a real asyncua adapter.
-
 ## Near-term roadmap
+- migrate connect/browser/inspector flows to Textual-first controllers
+- snapshot-test key UI flows
 - subscriptions and watchlist
 - reconnect flow
 - profile persistence
@@ -67,10 +53,8 @@ src/opcua_tui/
 
 ## Contribution guidance
 When adding features:
-- keep changes localized to the appropriate layer
-- prefer simple, explicit names
-- update docs and the implementation checklist
-- add tests for reducer and effect behavior
-
-## Status
-This repository is currently in early architecture and implementation planning.
+- keep UI free of direct OPC UA adapter calls
+- preserve port boundaries
+- prefer small typed state objects close to the owning screen
+- update docs when architectural boundaries change
+- add tests for behavior changes

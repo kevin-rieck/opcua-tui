@@ -15,7 +15,13 @@ from opcua_tui.app.messages import (
     NodeExpanded,
     NodeInspectionFailed,
     NodeInspectionStarted,
+    NodeSubscribeFailed,
+    NodeSubscribeStarted,
+    NodeSubscribeSucceeded,
+    NodeSubscriptionValueReceived,
     NodeSelected,
+    NodeUnsubscribeStarted,
+    NodeUnsubscribeSucceeded,
     NodeWriteFailed,
     NodeWriteStarted,
     NodeWriteSucceeded,
@@ -34,6 +40,8 @@ from opcua_tui.domain.models import (
     NodeRef,
     ServerInfo,
     SessionInfo,
+    SubscriptionItemState,
+    SubscriptionValueUpdate,
 )
 
 
@@ -102,6 +110,15 @@ def test_reduce_connection_messages() -> None:
     assert after_connection_failed.connect_modal.is_open is True
     assert after_connection_failed.connect_modal.is_submitting is False
     assert after_connection_failed.connect_modal.error == "boom"
+
+
+def test_reduce_connect_requested_redacts_endpoint_credentials_in_status_text() -> None:
+    state = AppState()
+    params = ConnectParams(endpoint="opc.tcp://user:pass@localhost:4840")
+
+    next_state = reduce(state, ConnectRequested(params=params))
+
+    assert next_state.ui.status_text == "Connecting to opc.tcp://***@localhost:4840"
 
 
 def test_reduce_root_browse_messages() -> None:
@@ -242,6 +259,52 @@ def test_reduce_unknown_message_keeps_state_by_value() -> None:
     assert next_state.browser.roots == state.browser.roots
 
 
+def test_reduce_subscription_messages() -> None:
+    node_id = "ns=2;s=Temperature"
+    state = AppState()
+
+    started = reduce(state, NodeSubscribeStarted(node_id=node_id))
+    assert node_id in started.subscriptions.subscribing
+
+    succeeded = reduce(
+        started,
+        NodeSubscribeSucceeded(node_id=node_id, display_name="Temperature"),
+    )
+    assert node_id not in succeeded.subscriptions.subscribing
+    assert succeeded.subscriptions.items_by_node_id[node_id].active is True
+
+    update = SubscriptionValueUpdate(
+        node_id=node_id,
+        value=22.4,
+        rendered_value="22.4",
+        variant_type="Double",
+        status_code="Good",
+    )
+    after_update = reduce(succeeded, NodeSubscriptionValueReceived(update=update))
+    item = after_update.subscriptions.items_by_node_id[node_id]
+    assert item.last_value == "22.4"
+    assert item.update_count == 1
+
+    unsub_started = reduce(after_update, NodeUnsubscribeStarted(node_id=node_id))
+    assert node_id in unsub_started.subscriptions.unsubscribing
+
+    unsub_succeeded = reduce(unsub_started, NodeUnsubscribeSucceeded(node_id=node_id))
+    assert node_id not in unsub_succeeded.subscriptions.items_by_node_id
+
+
+def test_reduce_subscription_failure_sets_error() -> None:
+    node_id = "n1"
+    state = AppState()
+    state.subscriptions.items_by_node_id[node_id] = SubscriptionItemState(
+        node_id=node_id,
+        display_name="Node 1",
+        active=True,
+    )
+
+    failed = reduce(state, NodeSubscribeFailed(node_id=node_id, error="denied"))
+    assert failed.subscriptions.items_by_node_id[node_id].error == "denied"
+
+
 def test_reduce_failure_status_includes_error_ref_when_present() -> None:
     state = AppState()
     next_state = reduce(state, RootBrowseFailed(error="denied", error_ref="abc12345"))
@@ -262,6 +325,9 @@ def test_reduce_connection_success_clears_stale_browser_and_inspector_state() ->
     state.browser.selected_node_id = "i=85"
     state.inspector.node_id = "i=85"
     state.inspector.loading = True
+    state.subscriptions.items_by_node_id["i=85"] = SubscriptionItemState(
+        node_id="i=85", display_name="Objects", active=True
+    )
 
     session = SessionInfo(
         session_id="s1",
@@ -276,3 +342,4 @@ def test_reduce_connection_success_clears_stale_browser_and_inspector_state() ->
     assert next_state.browser.selected_node_id is None
     assert next_state.inspector.node_id is None
     assert next_state.inspector.loading is False
+    assert next_state.subscriptions.items_by_node_id == {}

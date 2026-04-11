@@ -20,7 +20,14 @@ from opcua_tui.app.messages import (
     NodeExpandRequested,
     NodeInspectionFailed,
     NodeInspectionStarted,
+    NodeSubscribeFailed,
+    NodeSubscribeStarted,
+    NodeSubscribeSucceeded,
+    NodeSubscriptionValueReceived,
     NodeSelected,
+    NodeUnsubscribeFailed,
+    NodeUnsubscribeStarted,
+    NodeUnsubscribeSucceeded,
     NodeWriteFailed,
     NodeWriteStarted,
     NodeWriteSucceeded,
@@ -29,7 +36,14 @@ from opcua_tui.app.messages import (
     RootBrowseStarted,
     RootBrowseSucceeded,
 )
-from opcua_tui.domain.models import AppState, BrowserState, InspectorState
+from opcua_tui.domain.endpoint import sanitize_endpoint
+from opcua_tui.domain.models import (
+    AppState,
+    BrowserState,
+    InspectorState,
+    SubscriptionItemState,
+    SubscriptionsState,
+)
 
 
 def _format_error_with_ref(error: str, error_ref: str | None) -> str:
@@ -72,7 +86,7 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.connect_modal.params = params
             next_state.connect_modal.is_submitting = True
             next_state.connect_modal.error = None
-            next_state.ui.status_text = f"Connecting to {params.endpoint}"
+            next_state.ui.status_text = f"Connecting to {sanitize_endpoint(params.endpoint)}"
 
         case ConnectionStarted(endpoint=endpoint):
             next_state.session.status = "connecting"
@@ -85,10 +99,11 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.session.error = None
             next_state.browser = BrowserState()
             next_state.inspector = InspectorState()
+            next_state.subscriptions = SubscriptionsState()
             next_state.connect_modal.is_open = False
             next_state.connect_modal.is_submitting = False
             next_state.connect_modal.error = None
-            next_state.ui.status_text = f"Connected to {session.endpoint}"
+            next_state.ui.status_text = f"Connected to {sanitize_endpoint(session.endpoint)}"
 
         case ConnectionFailed(endpoint=endpoint, error=error, error_ref=error_ref):
             next_state.session.status = "error"
@@ -195,5 +210,68 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.ui.status_text = (
                 f"Write failed for {node_id}: {_format_error_with_ref(error, error_ref)}"
             )
+
+        case NodeSubscribeStarted(node_id=node_id):
+            next_state.subscriptions.subscribing.add(node_id)
+            item = next_state.subscriptions.items_by_node_id.get(node_id)
+            if item is not None:
+                item.error = None
+            next_state.ui.status_text = f"Subscribing to {node_id}"
+
+        case NodeSubscribeSucceeded(node_id=node_id, display_name=display_name):
+            next_state.subscriptions.subscribing.discard(node_id)
+            item = next_state.subscriptions.items_by_node_id.get(node_id)
+            if item is None:
+                item = SubscriptionItemState(node_id=node_id, display_name=display_name)
+            item.display_name = display_name
+            item.active = True
+            item.error = None
+            next_state.subscriptions.items_by_node_id[node_id] = item
+            next_state.ui.status_text = f"Subscribed to {node_id}"
+
+        case NodeSubscribeFailed(node_id=node_id, error=error, error_ref=error_ref):
+            next_state.subscriptions.subscribing.discard(node_id)
+            item = next_state.subscriptions.items_by_node_id.get(node_id)
+            if item is not None:
+                item.error = _format_error_with_ref(error, error_ref)
+                item.active = False
+            next_state.ui.status_text = (
+                f"Subscribe failed for {node_id}: {_format_error_with_ref(error, error_ref)}"
+            )
+
+        case NodeUnsubscribeStarted(node_id=node_id):
+            next_state.subscriptions.unsubscribing.add(node_id)
+            next_state.ui.status_text = f"Unsubscribing from {node_id}"
+
+        case NodeUnsubscribeSucceeded(node_id=node_id):
+            next_state.subscriptions.subscribing.discard(node_id)
+            next_state.subscriptions.unsubscribing.discard(node_id)
+            next_state.subscriptions.items_by_node_id.pop(node_id, None)
+            next_state.ui.status_text = f"Unsubscribed from {node_id}"
+
+        case NodeUnsubscribeFailed(node_id=node_id, error=error, error_ref=error_ref):
+            next_state.subscriptions.unsubscribing.discard(node_id)
+            item = next_state.subscriptions.items_by_node_id.get(node_id)
+            if item is not None:
+                item.error = _format_error_with_ref(error, error_ref)
+            next_state.ui.status_text = (
+                f"Unsubscribe failed for {node_id}: {_format_error_with_ref(error, error_ref)}"
+            )
+
+        case NodeSubscriptionValueReceived(update=update):
+            item = next_state.subscriptions.items_by_node_id.get(update.node_id)
+            if item is None:
+                item = SubscriptionItemState(
+                    node_id=update.node_id,
+                    display_name=update.node_id,
+                )
+            item.active = True
+            item.last_value = update.rendered_value
+            item.variant_type = update.variant_type
+            item.status_code = update.status_code
+            item.source_timestamp = update.source_timestamp
+            item.update_count += 1
+            item.error = None
+            next_state.subscriptions.items_by_node_id[update.node_id] = item
 
     return next_state

@@ -402,5 +402,128 @@ def test_stub_client_connect_rejects_invalid_security_combinations() -> None:
         )
 
 
+def test_stub_client_connect_redacts_endpoint_userinfo_in_session(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self.nodes = SimpleNamespace(
+                server=SimpleNamespace(
+                    get_child=lambda _path: _async_return(
+                        SimpleNamespace(read_value=lambda: _async_return("Stub OPC UA Server"))
+                    ),
+                )
+            )
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def get_session(self):
+            return SimpleNamespace(SessionId="s1")
+
+    monkeypatch.setattr(stub_client, "Client", FakeClient)
+
+    async def scenario() -> None:
+        client = StubOpcUaClientAdapter()
+        session = await client.connect(ConnectParams(endpoint="opc.tcp://user:pass@localhost:4840"))
+        assert session.endpoint == "opc.tcp://***@localhost:4840"
+
+    asyncio.run(scenario())
+
+
 async def _async_return(value):
     return value
+
+
+def test_stub_client_subscription_lifecycle_and_idempotency(monkeypatch) -> None:
+    class FakeSubscription:
+        def __init__(self) -> None:
+            self.deleted = False
+            self.subscribe_calls = 0
+            self.unsubscribe_calls: list[int] = []
+
+        async def subscribe_data_change(self, _node, attr):
+            self.subscribe_calls += 1
+            assert attr == stub_client.ua.AttributeIds.Value
+            return 101 + self.subscribe_calls
+
+        async def unsubscribe(self, handle: int) -> None:
+            self.unsubscribe_calls.append(handle)
+
+        async def delete(self) -> None:
+            self.deleted = True
+
+    class FakeNode:
+        def __init__(self, node_id: str) -> None:
+            self.nodeid = node_id
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self.subscriptions: list[FakeSubscription] = []
+            self.nodes = SimpleNamespace(
+                server=SimpleNamespace(
+                    get_child=lambda _path: _async_return(
+                        SimpleNamespace(read_value=lambda: _async_return("Stub OPC UA Server"))
+                    ),
+                )
+            )
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def get_session(self):
+            return SimpleNamespace(SessionId="s1")
+
+        async def create_subscription(self, period, handler):
+            assert period == 1000.0
+            assert handler is not None
+            sub = FakeSubscription()
+            self.subscriptions.append(sub)
+            return sub
+
+        def get_node(self, node_id):
+            key = node_id.to_string() if hasattr(node_id, "to_string") else str(node_id)
+            return FakeNode(key)
+
+    monkeypatch.setattr(stub_client, "Client", FakeClient)
+
+    async def scenario() -> None:
+        client = StubOpcUaClientAdapter()
+        await client.connect(ConnectParams(endpoint="opc.tcp://localhost:4840"))
+        await client.start_subscription_stream(lambda _u: _async_return(None))
+        await client.start_subscription_stream(lambda _u: _async_return(None))
+        canonical = await client.subscribe_value("ns=2;s=Temperature")
+        again = await client.subscribe_value("ns=2;s=Temperature")
+        await client.unsubscribe_value("ns=2;s=Temperature")
+        await client.unsubscribe_value("ns=2;s=Temperature")
+        await client.stop_subscription_stream()
+
+        fake_client = client._require_client()
+        sub = fake_client.subscriptions[0]
+        assert len(fake_client.subscriptions) == 1
+        assert canonical == "ns=2;s=Temperature"
+        assert again == "ns=2;s=Temperature"
+        assert sub.subscribe_calls == 1
+        assert sub.unsubscribe_calls == [102]
+        assert sub.deleted is True
+
+    asyncio.run(scenario())
+
+
+def test_stub_client_subscription_value_rendering_fallbacks() -> None:
+    assert StubOpcUaClientAdapter._render_subscription_value(True) == "True"
+    assert StubOpcUaClientAdapter._render_subscription_value(42) == "42"
+    assert StubOpcUaClientAdapter._render_subscription_value(12.5) == "12.5"
+    assert StubOpcUaClientAdapter._render_subscription_value("x") == "x"
+    assert StubOpcUaClientAdapter._render_subscription_value(b"\x01\x02") == "0102"
+    long_bytes = StubOpcUaClientAdapter._render_subscription_value(b"\x00" * 32)
+    assert "... (32 bytes)" in long_bytes
+    complex_value = {"a": [1, 2, 3]}
+    rendered = StubOpcUaClientAdapter._render_subscription_value(complex_value)
+    assert rendered.startswith("{'a':")

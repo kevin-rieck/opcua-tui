@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
@@ -57,6 +58,37 @@ class DataValueView:
     status_code: str
 
 
+@dataclass(slots=True, frozen=True)
+class SubscriptionValueUpdate:
+    node_id: str
+    value: Any
+    rendered_value: str
+    variant_type: str | None
+    status_code: str
+    source_timestamp: datetime | None = None
+    server_timestamp: datetime | None = None
+
+
+@dataclass(slots=True)
+class SubscriptionItemState:
+    node_id: str
+    display_name: str
+    active: bool = False
+    last_value: str | None = None
+    variant_type: str | None = None
+    status_code: str | None = None
+    source_timestamp: datetime | None = None
+    update_count: int = 0
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class SubscriptionsState:
+    items_by_node_id: dict[str, SubscriptionItemState] = field(default_factory=dict)
+    subscribing: set[str] = field(default_factory=set)
+    unsubscribing: set[str] = field(default_factory=set)
+
+
 @dataclass(slots=True)
 class SessionState:
     status: str = "disconnected"
@@ -103,5 +135,6 @@ class AppState:
     session: SessionState = field(default_factory=SessionState)
     browser: BrowserState = field(default_factory=BrowserState)
     inspector: InspectorState = field(default_factory=InspectorState)
+    subscriptions: SubscriptionsState = field(default_factory=SubscriptionsState)
     ui: UiState = field(default_factory=UiState)
     connect_modal: ConnectModalState = field(default_factory=ConnectModalState)

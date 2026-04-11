@@ -39,7 +39,7 @@ Add fields to connect modal:
 - Security Policy: `None`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss` (legacy policies optional/advanced)
 - Auth Mode: `Anonymous`, `Username/Password`
 - Username/Password (shown only for username mode)
-- Advanced optional overrides: client cert path, private key path
+- Advanced optional overrides: client cert path, private key path, with per-field `Browse...` actions
 
 Validation:
 - `mode=None` requires `policy=None`
@@ -47,6 +47,15 @@ Validation:
 - username/password required only in username mode
 - endpoint must be `opc.tcp://...`
 - encrypted private keys fail with explicit "not supported in v1" message
+
+Certificate file picker UX:
+- Keep direct text entry for both cert/key paths.
+- Add `Browse...` actions that open a file-picker modal and write the selected path back to the corresponding input.
+- Picker returns file paths only (not directories) and supports cancel without mutating form values.
+- Use default start directory: directory of current field value when valid, otherwise user home.
+- Cert picker hints common extensions: `.der`, `.pem`, `.crt`, `.cer`.
+- Key picker hints common extensions: `.pem`, `.key`, `.der`.
+- Pair validation remains unchanged: cert and key overrides must be provided together.
 
 ### 2) PKI Storage and Certificate Lifecycle
 Local PKI root:
@@ -122,8 +131,11 @@ Use existing fields end-to-end:
 
 ## Module Changes
 - `src/opcua_tui/ui/screens/connect_modal_screen.py`
-  - add security/auth inputs, conditional rendering, and validation
+  - add security/auth inputs, cert/key browse actions, conditional rendering, and validation
+  - integrate picker result handling into form state
   - add trust-failure retry UX
+- `src/opcua_tui/ui/screens/path_picker_screen.py` (new)
+  - reusable file-picker modal for cert/key path selection
 - `src/opcua_tui/infrastructure/opcua/stub_client.py` (or renamed adapter module)
   - implement secure setup, cert loading/generation, trust validation, error classification
 - `src/opcua_tui/app/effects.py`
@@ -139,6 +151,9 @@ Use existing fields end-to-end:
 
 ### Unit tests
 - connect form validation matrix for mode/policy/auth combinations
+- connect modal browse actions open picker and apply selected path to the correct field
+- picker cancel leaves existing cert/key values unchanged
+- picker enforces file-only selection
 - secure connect path invokes asyncua security setup correctly
 - auto-generate client cert/key when missing; reuse when present
 - unknown server cert produces trust failure metadata
@@ -162,6 +177,7 @@ Use existing fields end-to-end:
 
 ## Acceptance Criteria
 - User can establish secure OPC UA connections with selected mode/policy.
+- User can select client cert/key paths from file pickers in the secure connect modal.
 - Unknown/untrusted server cert does not silently pass; app provides fingerprinted trust guidance and manual retry.
 - Missing client cert/key in secure mode is handled by deterministic auto-generation in `~/.opcua-tui/pki`.
 - Username/password auth works over secure channel in v1.

@@ -1,6 +1,6 @@
 # OPC UA TUI
 
-A Textual-based terminal UI for connecting to an OPC UA server, browsing the address space, inspecting node data, writing scalar values, and viewing runtime logs.
+A Textual-based terminal UI for connecting to an OPC UA server, browsing the address space, inspecting node data, subscribing to live value changes, writing scalar values, and viewing runtime logs.
 
 ## How To (Quick Start)
 
@@ -12,7 +12,7 @@ uv run opcua-tui
 1. Enter an endpoint in the connect modal (for local testing: `opc.tcp://localhost:48010`).
 2. Choose security/auth options in the modal (or keep defaults for insecure anonymous).
 3. Press `Enter` (or select `Connect`).
-3. Browse the tree, select a node to inspect, and use the write panel to update values.
+3. Browse the tree, select a node to inspect, use the subscription panel for live updates, and use the write panel to update values.
 4. Press `Ctrl+L` to open the log viewer.
 
 ## Current State
@@ -22,6 +22,8 @@ uv run opcua-tui
 - Browser screen includes:
   - Address tree with lazy child loading
   - Inspector panel (attributes + value + status code)
+  - Subscription panel (subscribe/unsubscribe selected Variable node)
+  - Watchlist panel (latest value updates for active subscriptions)
   - Write value panel
   - Status bar + footer
 - Log viewer screen is available in-app (`Ctrl+L`) with filter and level controls.

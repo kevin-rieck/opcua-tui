@@ -8,6 +8,7 @@ from opcua_tui.domain.models import (
     NodeAttributes,
     NodeRef,
     SessionInfo,
+    SubscriptionValueUpdate,
 )
 
 
@@ -165,3 +166,54 @@ class NodeWriteFailed(Message):
     node_id: str
     error: str
     error_ref: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class NodeSubscribeRequested(Message):
+    node_id: str
+    display_name: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeSubscribeStarted(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeSubscribeSucceeded(Message):
+    node_id: str
+    display_name: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeSubscribeFailed(Message):
+    node_id: str
+    error: str
+    error_ref: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class NodeUnsubscribeRequested(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeUnsubscribeStarted(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeUnsubscribeSucceeded(Message):
+    node_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class NodeUnsubscribeFailed(Message):
+    node_id: str
+    error: str
+    error_ref: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class NodeSubscriptionValueReceived(Message):
+    update: SubscriptionValueUpdate

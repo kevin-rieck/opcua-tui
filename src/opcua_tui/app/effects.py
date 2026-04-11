@@ -17,7 +17,16 @@ from opcua_tui.app.messages import (
     NodeExpandRequested,
     NodeInspectionFailed,
     NodeInspectionStarted,
+    NodeSubscribeFailed,
+    NodeSubscribeRequested,
+    NodeSubscribeStarted,
+    NodeSubscribeSucceeded,
+    NodeSubscriptionValueReceived,
     NodeSelected,
+    NodeUnsubscribeFailed,
+    NodeUnsubscribeRequested,
+    NodeUnsubscribeStarted,
+    NodeUnsubscribeSucceeded,
     NodeWriteFailed,
     NodeWriteRequested,
     NodeWriteStarted,
@@ -29,6 +38,8 @@ from opcua_tui.app.messages import (
     RootBrowseSucceeded,
 )
 from opcua_tui.application.ports.opcua_client import OpcUaClientPort
+from opcua_tui.domain.endpoint import sanitize_endpoint
+from opcua_tui.domain.models import SubscriptionValueUpdate
 
 Dispatch = Callable[[object], Awaitable[None]]
 logger = logging.getLogger(__name__)
@@ -50,16 +61,29 @@ class Effects:
     async def handle(self, message: object) -> None:
         match message:
             case ConnectRequested(params=params):
-                await self.dispatch(ConnectionStarted(endpoint=params.endpoint))
+                safe_endpoint = sanitize_endpoint(params.endpoint)
+                await self.dispatch(ConnectionStarted(endpoint=safe_endpoint))
                 try:
+                    await self.opcua.stop_subscription_stream()
                     session = await self.opcua.connect(params)
                     await self.dispatch(ConnectionSucceeded(session=session))
                 except Exception as exc:
-                    error_ref = self._log_operation_failure("connect", endpoint=params.endpoint)
+                    error_ref = self._log_operation_failure("connect", endpoint=safe_endpoint)
                     await self.dispatch(
                         ConnectionFailed(
-                            endpoint=params.endpoint, error=str(exc), error_ref=error_ref
+                            endpoint=safe_endpoint, error=str(exc), error_ref=error_ref
                         )
+                    )
+
+            case ConnectionSucceeded():
+                try:
+                    await self.opcua.start_subscription_stream(
+                        on_update=self._on_subscription_update
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to start subscription stream",
+                        extra={"operation": "start_subscription_stream"},
                     )
 
             case RootBrowseRequested():
@@ -116,3 +140,30 @@ class Effects:
                     await self.dispatch(
                         NodeWriteFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )
+
+            case NodeSubscribeRequested(node_id=node_id, display_name=display_name):
+                await self.dispatch(NodeSubscribeStarted(node_id=node_id))
+                try:
+                    canonical_node_id = await self.opcua.subscribe_value(node_id)
+                    await self.dispatch(
+                        NodeSubscribeSucceeded(node_id=canonical_node_id, display_name=display_name)
+                    )
+                except Exception as exc:
+                    error_ref = self._log_operation_failure("subscribe_value", node_id=node_id)
+                    await self.dispatch(
+                        NodeSubscribeFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
+                    )
+
+            case NodeUnsubscribeRequested(node_id=node_id):
+                await self.dispatch(NodeUnsubscribeStarted(node_id=node_id))
+                try:
+                    await self.opcua.unsubscribe_value(node_id)
+                    await self.dispatch(NodeUnsubscribeSucceeded(node_id=node_id))
+                except Exception as exc:
+                    error_ref = self._log_operation_failure("unsubscribe_value", node_id=node_id)
+                    await self.dispatch(
+                        NodeUnsubscribeFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
+                    )
+
+    async def _on_subscription_update(self, update: SubscriptionValueUpdate) -> None:
+        await self.dispatch(NodeSubscriptionValueReceived(update=update))

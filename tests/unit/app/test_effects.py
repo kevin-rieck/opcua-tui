@@ -15,7 +15,15 @@ from opcua_tui.app.messages import (
     NodeExpandRequested,
     NodeInspectionFailed,
     NodeInspectionStarted,
+    NodeSubscribeFailed,
+    NodeSubscribeRequested,
+    NodeSubscribeStarted,
+    NodeSubscribeSucceeded,
+    NodeSubscriptionValueReceived,
     NodeSelected,
+    NodeUnsubscribeRequested,
+    NodeUnsubscribeStarted,
+    NodeUnsubscribeSucceeded,
     NodeWriteFailed,
     NodeWriteRequested,
     NodeWriteStarted,
@@ -33,6 +41,7 @@ from opcua_tui.domain.models import (
     NodeRef,
     ServerInfo,
     SessionInfo,
+    SubscriptionValueUpdate,
 )
 
 
@@ -43,8 +52,11 @@ class FakeOpcUa:
         self.raise_on_attrs = False
         self.raise_on_value = False
         self.raise_on_write = False
+        self.raise_on_subscribe = False
+        self.raise_on_unsubscribe = False
         self.last_node_id: str | None = None
         self.last_write: tuple[str, str, str | None] | None = None
+        self.subscription_callback = None
 
     async def connect(self, params: ConnectParams) -> SessionInfo:
         if self.raise_on_connect:
@@ -56,6 +68,14 @@ class FakeOpcUa:
         )
 
     async def disconnect(self) -> None:
+        return None
+
+    async def start_subscription_stream(self, on_update) -> None:
+        self.subscription_callback = on_update
+        return None
+
+    async def stop_subscription_stream(self) -> None:
+        self.subscription_callback = None
         return None
 
     async def browse_children(self, node_id: str | None) -> list[NodeRef]:
@@ -94,6 +114,16 @@ class FakeOpcUa:
             raise RuntimeError("write failed")
         return None
 
+    async def subscribe_value(self, node_id: str) -> str:
+        if self.raise_on_subscribe:
+            raise RuntimeError("subscribe failed")
+        return node_id
+
+    async def unsubscribe_value(self, node_id: str) -> None:
+        if self.raise_on_unsubscribe:
+            raise RuntimeError("unsubscribe failed")
+        return None
+
 
 def _run_effect(message: object, opcua: FakeOpcUa) -> list[object]:
     dispatched: list[object] = []
@@ -119,6 +149,43 @@ def test_effects_connect_success_and_failure() -> None:
     assert isinstance(failure_messages[0], ConnectionStarted)
     assert isinstance(failure_messages[1], ConnectionFailed)
     assert failure_messages[1].error_ref is not None
+
+
+def test_effects_connection_succeeded_starts_subscription_stream() -> None:
+    session = SessionInfo(
+        session_id="fake",
+        endpoint="opc.tcp://localhost:4840",
+        server=ServerInfo(application_name="Fake"),
+    )
+    client = FakeOpcUa()
+    _run_effect(ConnectionSucceeded(session=session), client)
+    assert client.subscription_callback is not None
+
+
+def test_effects_subscription_callback_dispatches_value_message() -> None:
+    dispatched: list[object] = []
+    client = FakeOpcUa()
+
+    async def dispatch(msg: object) -> None:
+        dispatched.append(msg)
+
+    session = SessionInfo(
+        session_id="fake",
+        endpoint="opc.tcp://localhost:4840",
+        server=ServerInfo(application_name="Fake"),
+    )
+    effects = Effects(dispatch=dispatch, opcua=client)
+    asyncio.run(effects.handle(ConnectionSucceeded(session=session)))
+    update = SubscriptionValueUpdate(
+        node_id="n1",
+        value=1,
+        rendered_value="1",
+        variant_type="Int32",
+        status_code="Good",
+    )
+    asyncio.run(client.subscription_callback(update))
+
+    assert isinstance(dispatched[0], NodeSubscriptionValueReceived)
 
 
 def test_effects_root_browse_success_and_failure() -> None:
@@ -185,6 +252,33 @@ def test_effects_node_write_success_and_failure() -> None:
     assert failure_messages[1].error_ref is not None
 
 
+def test_effects_subscription_success_and_failure() -> None:
+    node_id = "ns=2;s=Temperature"
+    client = FakeOpcUa()
+    success_messages = _run_effect(
+        NodeSubscribeRequested(node_id=node_id, display_name="Temperature"), client
+    )
+    assert isinstance(success_messages[0], NodeSubscribeStarted)
+    assert isinstance(success_messages[1], NodeSubscribeSucceeded)
+
+    failing_client = FakeOpcUa()
+    failing_client.raise_on_subscribe = True
+    failure_messages = _run_effect(
+        NodeSubscribeRequested(node_id=node_id, display_name="Temperature"),
+        failing_client,
+    )
+    assert isinstance(failure_messages[0], NodeSubscribeStarted)
+    assert isinstance(failure_messages[1], NodeSubscribeFailed)
+    assert failure_messages[1].error_ref is not None
+
+
+def test_effects_unsubscribe_success() -> None:
+    node_id = "ns=2;s=Temperature"
+    success_messages = _run_effect(NodeUnsubscribeRequested(node_id=node_id), FakeOpcUa())
+    assert isinstance(success_messages[0], NodeUnsubscribeStarted)
+    assert isinstance(success_messages[1], NodeUnsubscribeSucceeded)
+
+
 def test_effects_logs_exception_context_with_error_ref(monkeypatch: pytest.MonkeyPatch) -> None:
     params = ConnectParams(endpoint="opc.tcp://localhost:4840")
     failing_client = FakeOpcUa()
@@ -200,5 +294,20 @@ def test_effects_logs_exception_context_with_error_ref(monkeypatch: pytest.Monke
     assert isinstance(failure_messages[1], ConnectionFailed)
     assert failure_messages[1].error_ref is not None
     assert captured["operation"] == "connect"
-    assert captured["endpoint"] == params.endpoint
+    assert captured["endpoint"] == "opc.tcp://localhost:4840"
     assert captured["error_ref"] == failure_messages[1].error_ref
+
+
+def test_effects_redacts_endpoint_credentials_in_connect_flow() -> None:
+    params = ConnectParams(endpoint="opc.tcp://user:pass@example.com:4840")
+    failing_client = FakeOpcUa()
+    failing_client.raise_on_connect = True
+
+    failure_messages = _run_effect(ConnectRequested(params=params), failing_client)
+
+    started = failure_messages[0]
+    failed = failure_messages[1]
+    assert isinstance(started, ConnectionStarted)
+    assert isinstance(failed, ConnectionFailed)
+    assert started.endpoint == "opc.tcp://***@example.com:4840"
+    assert failed.endpoint == "opc.tcp://***@example.com:4840"

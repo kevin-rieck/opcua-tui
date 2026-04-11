@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from asyncua import Client, ua
+from asyncua.common.subscription import DataChangeNotif, Subscription
 from asyncua.crypto import security_policies
 
+from opcua_tui.domain.endpoint import sanitize_endpoint
 from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import (
     ConnectParams,
@@ -16,6 +20,7 @@ from opcua_tui.domain.models import (
     NodeRef,
     ServerInfo,
     SessionInfo,
+    SubscriptionValueUpdate,
 )
 from opcua_tui.infrastructure.opcua.pki import ClientPkiStore
 
@@ -34,11 +39,42 @@ SECURITY_MODE_MAP: dict[SecurityMode, ua.MessageSecurityMode] = {
 }
 
 
+class _SubscriptionHandler:
+    def __init__(
+        self,
+        callback: Callable[[SubscriptionValueUpdate], Awaitable[None]] | None = None,
+    ) -> None:
+        self.callback = callback
+
+    async def datachange_notification(self, node: Any, _val: Any, data: DataChangeNotif) -> None:
+        if self.callback is None:
+            return
+        data_value = data.monitored_item.Value
+        variant = data_value.Value
+        raw_value = variant.Value if variant is not None else None
+        rendered_value = StubOpcUaClientAdapter._render_subscription_value(raw_value)
+        update = SubscriptionValueUpdate(
+            node_id=StubOpcUaClientAdapter._node_id_to_string_static(getattr(node, "nodeid", node)),
+            value=raw_value,
+            rendered_value=rendered_value,
+            variant_type=variant.VariantType.name if variant is not None else None,
+            status_code=data_value.StatusCode.name
+            if data_value.StatusCode is not None
+            else "Unknown",
+            source_timestamp=data_value.SourceTimestamp,
+            server_timestamp=data_value.ServerTimestamp,
+        )
+        await self.callback(update)
+
+
 class StubOpcUaClientAdapter:
     def __init__(self, *, pki_store: ClientPkiStore | None = None) -> None:
         self._client: Client | None = None
         self._session_id: str | None = None
         self._pki_store = pki_store or ClientPkiStore()
+        self._subscription: Subscription | None = None
+        self._subscription_handler = _SubscriptionHandler()
+        self._subscription_handles: dict[str, int] = {}
 
     async def connect(self, params: ConnectParams) -> SessionInfo:
         if self._client is not None:
@@ -73,9 +109,55 @@ class StubOpcUaClientAdapter:
 
         return SessionInfo(
             session_id=self._session_id or "unknown-session",
-            endpoint=params.endpoint,
+            endpoint=sanitize_endpoint(params.endpoint),
             server=ServerInfo(application_name=server_name),
         )
+
+    async def start_subscription_stream(
+        self, on_update: Callable[[SubscriptionValueUpdate], Awaitable[None]]
+    ) -> None:
+        self._subscription_handler.callback = on_update
+        if self._subscription is not None:
+            return
+        client = self._require_client()
+        self._subscription = await client.create_subscription(
+            period=1000.0, handler=self._subscription_handler
+        )
+        self._subscription_handles = {}
+
+    async def stop_subscription_stream(self) -> None:
+        self._subscription_handler.callback = None
+        if self._subscription is None:
+            self._subscription_handles = {}
+            return
+        try:
+            await self._subscription.delete()
+        finally:
+            self._subscription = None
+            self._subscription_handles = {}
+
+    async def subscribe_value(self, node_id: str) -> str:
+        client = self._require_client()
+        subscription = self._require_subscription()
+        normalized_node_id = self._normalize_node_id(node_id)
+        node = client.get_node(normalized_node_id)
+        canonical_node_id = self._node_id_to_string(getattr(node, "nodeid", normalized_node_id))
+        if canonical_node_id in self._subscription_handles:
+            return canonical_node_id
+        handle = await subscription.subscribe_data_change(node, attr=ua.AttributeIds.Value)
+        if not isinstance(handle, int):
+            raise RuntimeError(f"Unexpected subscription handle for {canonical_node_id}: {handle}")
+        self._subscription_handles[canonical_node_id] = handle
+        return canonical_node_id
+
+    async def unsubscribe_value(self, node_id: str) -> None:
+        subscription = self._require_subscription()
+        canonical_node_id = self._node_id_to_string(self._normalize_node_id(node_id))
+        handle = self._subscription_handles.pop(canonical_node_id, None)
+        if handle is None:
+            # Keep operation idempotent.
+            return
+        await subscription.unsubscribe(handle)
 
     async def _configure_security(self, *, client: Client, params: ConnectParams) -> None:
         if params.security_mode == SecurityMode.NONE:
@@ -138,6 +220,7 @@ class StubOpcUaClientAdapter:
     async def disconnect(self) -> None:
         if self._client is None:
             return
+        await self.stop_subscription_stream()
         try:
             await self._client.disconnect()
         finally:
@@ -241,13 +324,39 @@ class StubOpcUaClientAdapter:
             raise RuntimeError("Not connected. Call connect() first.")
         return self._client
 
+    def _require_subscription(self) -> Subscription:
+        if self._subscription is None:
+            raise RuntimeError("Subscription stream not started. Connect first.")
+        return self._subscription
+
     def _node_id_to_string(self, node_id: Any) -> str:
+        return self._node_id_to_string_static(node_id)
+
+    @staticmethod
+    def _node_id_to_string_static(node_id: Any) -> str:
         try:
             if hasattr(node_id, "to_string"):
                 return node_id.to_string()
         except Exception:
             pass
         return str(node_id)
+
+    @staticmethod
+    def _render_subscription_value(value: Any) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bytes):
+            if len(value) <= 16:
+                return value.hex()
+            return f"{value[:16].hex()}... ({len(value)} bytes)"
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, (str, int, float, bool)):
+            return str(value)
+        rendered = repr(value)
+        if len(rendered) > 120:
+            return f"{rendered[:117]}..."
+        return rendered
 
     def _normalize_node_id(self, node_id: Any) -> Any:
         if node_id is None:

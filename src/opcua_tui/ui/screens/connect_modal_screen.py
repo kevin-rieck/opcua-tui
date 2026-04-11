@@ -10,6 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
 from opcua_tui.application.ports.opcua_client import OpcUaClientPort
+from opcua_tui.domain.endpoint import sanitize_endpoint
 from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import ConnectParams, SessionInfo
 
@@ -359,12 +360,13 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
             session = await self._opcua.connect(params)
         except Exception as exc:
             error_ref = uuid.uuid4().hex[:8]
+            safe_endpoint = sanitize_endpoint(params.endpoint)
             logger.exception(
                 "OPC UA connect failed",
-                extra={"endpoint": params.endpoint, "error_ref": error_ref},
+                extra={"endpoint": safe_endpoint, "error_ref": error_ref},
             )
             self.error_text = self._format_connection_error(
-                message=str(exc),
+                message=self._sanitize_error_message(str(exc), params.endpoint),
                 error_ref=error_ref,
                 params=params,
             )
@@ -468,3 +470,7 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
 
     def _default_pki_root(self) -> str:
         return "~/.opcua-tui/pki"
+
+    def _sanitize_error_message(self, message: str, endpoint: str) -> str:
+        safe_endpoint = sanitize_endpoint(endpoint)
+        return message.replace(endpoint, safe_endpoint)

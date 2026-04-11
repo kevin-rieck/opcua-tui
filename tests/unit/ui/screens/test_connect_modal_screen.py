@@ -199,3 +199,16 @@ def test_connect_modal_formats_auth_error_with_actionable_hints() -> None:
     assert "Authentication failed." in text
     assert "Verify username and password" in text
     assert "Reference: def67890" in text
+
+
+def test_connect_modal_sanitizes_endpoint_credentials_in_error_details() -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+
+    raw = "failed to connect opc.tcp://user:pass@localhost:4840"
+    sanitized = screen._sanitize_error_message(raw, "opc.tcp://user:pass@localhost:4840")
+
+    assert "user:pass@" not in sanitized
+    assert "opc.tcp://***@localhost:4840" in sanitized

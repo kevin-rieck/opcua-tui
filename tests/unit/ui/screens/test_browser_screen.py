@@ -6,10 +6,19 @@ from opcua_tui.app.messages import (
     NodeExpanded,
     NodeExpandRequested,
     NodeSelected,
+    NodeSubscribeRequested,
+    NodeUnsubscribeRequested,
     NodeWriteRequested,
 )
-from opcua_tui.domain.models import AppState, InspectorState, NodeRef, UiState
+from opcua_tui.domain.models import (
+    AppState,
+    InspectorState,
+    NodeRef,
+    SubscriptionsState,
+    UiState,
+)
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
+from opcua_tui.ui.widgets.subscription_panel import SubscriptionPanel
 from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
@@ -32,9 +41,9 @@ class FakeTree:
         self.selected = None
         self.replace_calls = 0
 
-    def replace_with_state(self, roots, children_by_parent, expanded) -> None:
+    def replace_with_state(self, roots, children_by_parent, expanded, subscribed_node_ids) -> None:
         self.replace_calls += 1
-        self.replace_args = (roots, children_by_parent, expanded)
+        self.replace_args = (roots, children_by_parent, expanded, subscribed_node_ids)
 
     def find_node_by_id(self, node_id: str):
         if node_id == "n1":
@@ -77,6 +86,22 @@ class FakeWritePanel:
         self.cleared = True
 
 
+class FakeSubscriptionPanel:
+    def __init__(self) -> None:
+        self.rendered = None
+
+    def render_from_state(self, inspector_state, subscriptions_state) -> None:
+        self.rendered = (inspector_state, subscriptions_state)
+
+
+class FakeWatchlistPanel:
+    def __init__(self) -> None:
+        self.rendered = None
+
+    def render_from_state(self, subscriptions_state) -> None:
+        self.rendered = subscriptions_state
+
+
 def test_browser_screen_on_mount_subscribes_and_renders_initial_state(monkeypatch) -> None:
     state = AppState()
     store = FakeStore(state=state)
@@ -103,6 +128,8 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
     details = FakeDetails()
     status = FakeStatus()
     write_panel = FakeWritePanel()
+    subscription_panel = FakeSubscriptionPanel()
+    watchlist_panel = FakeWatchlistPanel()
 
     def fake_query_one(widget_type):
         name = widget_type.__name__
@@ -112,6 +139,10 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
             return details
         if name == "WriteValuePanel":
             return write_panel
+        if name == "SubscriptionPanel":
+            return subscription_panel
+        if name == "WatchlistPanel":
+            return watchlist_panel
         return status
 
     monkeypatch.setattr(screen, "query_one", fake_query_one)
@@ -121,7 +152,9 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
     assert tree.replace_args is not None
     assert tree.selected is not None
     assert details.rendered is state.inspector
+    assert subscription_panel.rendered == (state.inspector, state.subscriptions)
     assert write_panel.rendered is state.inspector
+    assert watchlist_panel.rendered is state.subscriptions
     assert status.text == "ok"
 
 
@@ -137,6 +170,8 @@ def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(mon
     details = FakeDetails()
     status = FakeStatus()
     write_panel = FakeWritePanel()
+    subscription_panel = FakeSubscriptionPanel()
+    watchlist_panel = FakeWatchlistPanel()
 
     def fake_query_one(widget_type):
         name = widget_type.__name__
@@ -146,6 +181,10 @@ def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(mon
             return details
         if name == "WriteValuePanel":
             return write_panel
+        if name == "SubscriptionPanel":
+            return subscription_panel
+        if name == "WatchlistPanel":
+            return watchlist_panel
         return status
 
     monkeypatch.setattr(screen, "query_one", fake_query_one)
@@ -174,6 +213,8 @@ def test_browser_screen_render_state_clears_write_input_after_success(monkeypatc
     details = FakeDetails()
     status = FakeStatus()
     write_panel = FakeWritePanel()
+    subscription_panel = FakeSubscriptionPanel()
+    watchlist_panel = FakeWatchlistPanel()
 
     def fake_query_one(widget_type):
         name = widget_type.__name__
@@ -183,6 +224,10 @@ def test_browser_screen_render_state_clears_write_input_after_success(monkeypatc
             return details
         if name == "WriteValuePanel":
             return write_panel
+        if name == "SubscriptionPanel":
+            return subscription_panel
+        if name == "WatchlistPanel":
+            return watchlist_panel
         return status
 
     monkeypatch.setattr(screen, "query_one", fake_query_one)
@@ -306,6 +351,28 @@ def test_browser_screen_focus_write_input_action(monkeypatch) -> None:
     screen.action_focus_write_input()
 
     assert panel.focused is True
+
+
+def test_browser_screen_subscription_panel_dispatches_messages() -> None:
+    state = AppState(
+        subscriptions=SubscriptionsState(),
+    )
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+
+    asyncio.run(
+        screen.on_subscription_panel_subscribe_requested(
+            SubscriptionPanel.SubscribeRequested(node_id="n1", display_name="N1")
+        )
+    )
+    asyncio.run(
+        screen.on_subscription_panel_unsubscribe_requested(
+            SubscriptionPanel.UnsubscribeRequested(node_id="n1")
+        )
+    )
+
+    assert isinstance(store.dispatched[0], NodeSubscribeRequested)
+    assert isinstance(store.dispatched[1], NodeUnsubscribeRequested)
 
 
 def test_browser_screen_has_log_viewer_binding() -> None:
