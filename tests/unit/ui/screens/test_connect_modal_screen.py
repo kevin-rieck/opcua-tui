@@ -1,5 +1,6 @@
 import asyncio
 
+from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import ConnectParams
 from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
 
@@ -33,9 +34,29 @@ class FakeStatic:
         self.text = value
 
 
+class FakeSelect:
+    def __init__(self, value) -> None:
+        self.value = value
+        self.disabled = False
+
+
+class FakeContainer:
+    def __init__(self) -> None:
+        self.display = True
+
+
 def _build_widgets(endpoint: str = "") -> dict[str, object]:
     return {
         "#endpoint": FakeInput(value=endpoint),
+        "#security-mode": FakeSelect(SecurityMode.NONE),
+        "#security-policy": FakeSelect(SecurityPolicy.NONE),
+        "#auth-mode": FakeSelect(AuthenticationMode.ANONYMOUS),
+        "#username-field": FakeContainer(),
+        "#username": FakeInput(),
+        "#password-field": FakeContainer(),
+        "#password": FakeInput(),
+        "#certificate-path": FakeInput(),
+        "#private-key-path": FakeInput(),
         "#connect-error": FakeStatic(),
         "#submit": FakeButton(),
         "#cancel": FakeButton(label="Cancel"),
@@ -93,3 +114,88 @@ def test_connect_modal_submit_rejects_invalid_endpoint(monkeypatch) -> None:
 
     assert screen.is_submitting is False
     assert screen.error_text == "Endpoint must start with opc.tcp://"
+
+
+def test_connect_modal_rejects_security_mode_and_policy_mismatch(monkeypatch) -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+    widgets = _build_widgets(endpoint="opc.tcp://localhost:4840")
+    widgets["#security-mode"].value = SecurityMode.SIGN
+    widgets["#security-policy"].value = SecurityPolicy.NONE
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
+
+    asyncio.run(screen._submit_form())
+
+    assert screen.is_submitting is False
+    assert "Security policy is required" in screen.error_text
+
+
+def test_connect_modal_requires_credentials_for_username_auth(monkeypatch) -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+    widgets = _build_widgets(endpoint="opc.tcp://localhost:4840")
+    widgets["#auth-mode"].value = AuthenticationMode.USERNAME_PASSWORD
+    widgets["#username"].value = ""
+    widgets["#password"].value = ""
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
+    monkeypatch.setattr(
+        screen,
+        "run_worker",
+        lambda coro, **_kwargs: (coro.close(), None)[1],
+    )
+
+    asyncio.run(screen._submit_form())
+    assert "Username is required" in screen.error_text
+
+    widgets["#auth-mode"].value = AuthenticationMode.USERNAME_PASSWORD
+    widgets["#username"].value = "operator"
+    widgets["#endpoint"].value = "opc.tcp://localhost:4840"
+    asyncio.run(screen._submit_form())
+    assert "Password is required" in screen.error_text
+
+
+def test_connect_modal_formats_trust_error_with_actionable_hints() -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+
+    text = screen._format_connection_error(
+        message="BadCertificateUntrusted",
+        error_ref="abc12345",
+        params=ConnectParams(
+            endpoint="opc.tcp://localhost:4840",
+            security_mode=SecurityMode.SIGN,
+            security_policy=SecurityPolicy.BASIC256SHA256,
+        ),
+    )
+
+    assert "Server certificate is not trusted." in text
+    assert "PKI path: ~/.opcua-tui/pki" in text
+    assert "Reference: abc12345" in text
+
+
+def test_connect_modal_formats_auth_error_with_actionable_hints() -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+
+    text = screen._format_connection_error(
+        message="BadUserAccessDenied",
+        error_ref="def67890",
+        params=ConnectParams(
+            endpoint="opc.tcp://localhost:4840",
+            authentication_mode=AuthenticationMode.USERNAME_PASSWORD,
+            username="operator",
+            password="secret",
+        ),
+    )
+
+    assert "Authentication failed." in text
+    assert "Verify username and password" in text
+    assert "Reference: def67890" in text

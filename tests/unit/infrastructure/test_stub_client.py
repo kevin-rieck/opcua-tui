@@ -1,9 +1,12 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import ConnectParams
+from opcua_tui.infrastructure.opcua.pki import ClientCertificateMaterial
 from opcua_tui.infrastructure.opcua import stub_client
 from opcua_tui.infrastructure.opcua.stub_client import StubOpcUaClientAdapter
 
@@ -288,3 +291,114 @@ def test_stub_client_write_value_passes_explicit_variant_type(monkeypatch) -> No
         await client.disconnect()
 
     asyncio.run(scenario())
+
+
+def test_stub_client_connect_configures_secure_channel_and_username_auth(monkeypatch) -> None:
+    class FakeSecureClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+            self.security_calls: list[dict[str, object]] = []
+            self.user = None
+            self.password = None
+            product_name = SimpleNamespace(read_value=lambda: _async_return("Secure Server"))
+            self.nodes = SimpleNamespace(
+                server=SimpleNamespace(
+                    get_child=lambda _path: _async_return(product_name),
+                )
+            )
+
+        async def set_security(self, **kwargs) -> None:
+            self.security_calls.append(kwargs)
+
+        def set_user(self, value: str) -> None:
+            self.user = value
+
+        def set_password(self, value: str) -> None:
+            self.password = value
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def get_session(self):
+            return SimpleNamespace(SessionId="secure-session")
+
+        def get_node(self, node_id):
+            raise AssertionError(f"Unexpected get_node call: {node_id}")
+
+    class FakePkiStore:
+        def ensure_client_certificate_material(
+            self, *, certificate_path: str, private_key_path: str
+        ):
+            assert certificate_path == ""
+            assert private_key_path == ""
+            return ClientCertificateMaterial(
+                certificate_path=Path("client.der"),
+                private_key_path=Path("client.pem"),
+                fingerprint_sha256="FINGERPRINT",
+            )
+
+    monkeypatch.setattr(stub_client, "Client", FakeSecureClient)
+    monkeypatch.setattr(
+        StubOpcUaClientAdapter,
+        "_validate_private_key_unencrypted",
+        lambda _self, _path: None,
+    )
+
+    async def scenario() -> None:
+        client = StubOpcUaClientAdapter(pki_store=FakePkiStore())
+        session = await client.connect(
+            ConnectParams(
+                endpoint="opc.tcp://localhost:4840",
+                security_mode=SecurityMode.SIGN,
+                security_policy=SecurityPolicy.BASIC256SHA256,
+                authentication_mode=AuthenticationMode.USERNAME_PASSWORD,
+                username="operator",
+                password="secret",
+            )
+        )
+        secure_client = client._require_client()
+        assert secure_client.user == "operator"
+        assert secure_client.password == "secret"
+        assert len(secure_client.security_calls) == 1
+        call = secure_client.security_calls[0]
+        assert call["certificate"] == Path("client.der")
+        assert call["private_key"] == Path("client.pem")
+        assert call["mode"] == stub_client.ua.MessageSecurityMode.Sign
+        assert session.session_id == "secure-session"
+
+    asyncio.run(scenario())
+
+
+def test_stub_client_connect_rejects_invalid_security_combinations() -> None:
+    client = StubOpcUaClientAdapter()
+
+    with pytest.raises(ValueError, match="Security policy must be None"):
+        asyncio.run(
+            client._configure_security(
+                client=SimpleNamespace(),
+                params=ConnectParams(
+                    endpoint="opc.tcp://localhost:4840",
+                    security_mode=SecurityMode.NONE,
+                    security_policy=SecurityPolicy.BASIC256SHA256,
+                ),
+            )
+        )
+
+    with pytest.raises(ValueError, match="Security policy is required"):
+        asyncio.run(
+            client._configure_security(
+                client=SimpleNamespace(),
+                params=ConnectParams(
+                    endpoint="opc.tcp://localhost:4840",
+                    security_mode=SecurityMode.SIGN,
+                    security_policy=SecurityPolicy.NONE,
+                ),
+            )
+        )
+
+
+async def _async_return(value):
+    return value

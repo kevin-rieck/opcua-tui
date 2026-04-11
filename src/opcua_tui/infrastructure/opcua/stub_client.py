@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 
 from asyncua import Client, ua
+from asyncua.crypto import security_policies
 
+from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import (
     ConnectParams,
     DataValueView,
@@ -14,18 +17,36 @@ from opcua_tui.domain.models import (
     ServerInfo,
     SessionInfo,
 )
+from opcua_tui.infrastructure.opcua.pki import ClientPkiStore
+
+
+SECURITY_POLICY_MAP: dict[SecurityPolicy, type[security_policies.SecurityPolicy]] = {
+    SecurityPolicy.BASIC128RSA15: security_policies.SecurityPolicyBasic128Rsa15,
+    SecurityPolicy.BASIC256: security_policies.SecurityPolicyBasic256,
+    SecurityPolicy.BASIC256SHA256: security_policies.SecurityPolicyBasic256Sha256,
+    SecurityPolicy.AES128_SHA256_RSAOAEP: security_policies.SecurityPolicyAes128Sha256RsaOaep,
+    SecurityPolicy.AES256_SHA256_RSAPSS: security_policies.SecurityPolicyAes256Sha256RsaPss,
+}
+
+SECURITY_MODE_MAP: dict[SecurityMode, ua.MessageSecurityMode] = {
+    SecurityMode.SIGN: ua.MessageSecurityMode.Sign,
+    SecurityMode.SIGN_AND_ENCRYPT: ua.MessageSecurityMode.SignAndEncrypt,
+}
 
 
 class StubOpcUaClientAdapter:
-    def __init__(self) -> None:
+    def __init__(self, *, pki_store: ClientPkiStore | None = None) -> None:
         self._client: Client | None = None
         self._session_id: str | None = None
+        self._pki_store = pki_store or ClientPkiStore()
 
     async def connect(self, params: ConnectParams) -> SessionInfo:
         if self._client is not None:
             await self.disconnect()
 
         client = Client(url=params.endpoint)
+        await self._configure_security(client=client, params=params)
+        self._configure_auth(client=client, params=params)
         await client.connect()
         self._client = client
 
@@ -55,6 +76,63 @@ class StubOpcUaClientAdapter:
             endpoint=params.endpoint,
             server=ServerInfo(application_name=server_name),
         )
+
+    async def _configure_security(self, *, client: Client, params: ConnectParams) -> None:
+        if params.security_mode == SecurityMode.NONE:
+            if params.security_policy != SecurityPolicy.NONE:
+                raise ValueError("Security policy must be None when security mode is None.")
+            return
+
+        if params.security_policy == SecurityPolicy.NONE:
+            raise ValueError("Security policy is required for secure connection modes.")
+
+        mode = SECURITY_MODE_MAP.get(params.security_mode)
+        policy = SECURITY_POLICY_MAP.get(params.security_policy)
+        if mode is None:
+            raise ValueError(f"Unsupported security mode: {params.security_mode.value}")
+        if policy is None:
+            raise ValueError(f"Unsupported security policy: {params.security_policy.value}")
+
+        material = self._pki_store.ensure_client_certificate_material(
+            certificate_path=params.certificate_path,
+            private_key_path=params.private_key_path,
+        )
+        self._validate_private_key_unencrypted(material.private_key_path)
+        await client.set_security(
+            policy=policy,
+            certificate=material.certificate_path,
+            private_key=material.private_key_path,
+            mode=mode,
+        )
+
+    def _configure_auth(self, *, client: Client, params: ConnectParams) -> None:
+        if params.authentication_mode == AuthenticationMode.ANONYMOUS:
+            return
+
+        if params.authentication_mode == AuthenticationMode.USERNAME_PASSWORD:
+            username = params.username.strip()
+            password = params.password
+            if not username:
+                raise ValueError("Username is required for username/password authentication.")
+            if not password:
+                raise ValueError("Password is required for username/password authentication.")
+            client.set_user(username)
+            client.set_password(password)
+            return
+
+        if params.authentication_mode == AuthenticationMode.CERTIFICATE:
+            raise ValueError("Certificate authentication is not supported in v1.")
+
+        raise ValueError(f"Unsupported authentication mode: {params.authentication_mode.value}")
+
+    def _validate_private_key_unencrypted(self, private_key_path: Path) -> None:
+        try:
+            text = private_key_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # DER key format has no marker that indicates passphrase support in this check.
+            return
+        if "ENCRYPTED PRIVATE KEY" in text:
+            raise ValueError("Encrypted private keys are not supported in v1.")
 
     async def disconnect(self) -> None:
         if self._client is None:
