@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from textual.binding import Binding
+
 from opcua_tui.infrastructure.logging_config import LogRecordView
 from opcua_tui.ui.screens.log_viewer_screen import LogViewerScreen
 
@@ -11,12 +13,16 @@ class FakeLogWidget:
     def __init__(self) -> None:
         self.lines: list[str] = []
         self.auto_scroll = True
+        self.focused = False
 
     def write_line(self, line: str) -> None:
         self.lines.append(line)
 
     def clear(self) -> None:
         self.lines.clear()
+
+    def focus(self) -> None:
+        self.focused = True
 
 
 class FakeInputWidget:
@@ -128,3 +134,38 @@ def test_log_viewer_poll_logs_appends_new_entries(monkeypatch) -> None:
     screen._poll_logs()
     assert len(log_widget.lines) == 2
     assert "slow render" in log_widget.lines[1]
+
+
+def test_log_viewer_q_binding_has_priority() -> None:
+    binding = next(b for b in LogViewerScreen.BINDINGS if isinstance(b, Binding) and b.key == "q")
+    assert binding.action == "close"
+    assert binding.priority is True
+
+
+def test_log_viewer_on_mount_focuses_log_output(monkeypatch) -> None:
+    screen = LogViewerScreen()
+    log_widget = FakeLogWidget()
+    filter_widget = FakeInputWidget()
+    meta_widget = FakeStaticWidget()
+    interval_calls: list[tuple[float, object]] = []
+
+    def fake_query_one(selector, _type=None):
+        if selector == "#log-output":
+            return log_widget
+        if selector == "#log-filter":
+            return filter_widget
+        return meta_widget
+
+    monkeypatch.setattr(screen, "query_one", fake_query_one)
+    monkeypatch.setattr(screen, "_rebuild_view", lambda: None)
+    monkeypatch.setattr(
+        screen,
+        "set_interval",
+        lambda interval, callback: interval_calls.append((interval, callback)),
+    )
+
+    screen.on_mount()
+
+    assert interval_calls and interval_calls[0][0] == 0.25
+    assert interval_calls[0][1] == screen._poll_logs
+    assert log_widget.focused is True

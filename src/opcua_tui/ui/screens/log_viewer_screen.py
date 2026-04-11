@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Log, Static
@@ -12,12 +13,12 @@ from opcua_tui.infrastructure.logging_config import LogRecordView, get_log_buffe
 
 class LogViewerScreen(Screen[None]):
     BINDINGS = [
-        ("escape", "close", "Back"),
-        ("q", "close", "Back"),
-        ("f", "toggle_follow", "Follow"),
-        ("c", "clear_view", "Clear View"),
-        ("/", "focus_filter", "Filter"),
-        ("l", "cycle_level", "Level"),
+        Binding("escape", "close", "Back"),
+        Binding("q", "close", "Back", priority=True),
+        Binding("f", "toggle_follow", "Follow"),
+        Binding("c", "clear_view", "Clear View"),
+        Binding("/", "focus_filter", "Filter"),
+        Binding("l", "cycle_level", "Level"),
     ]
 
     LEVELS = [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR]
@@ -63,6 +64,7 @@ class LogViewerScreen(Screen[None]):
     def on_mount(self) -> None:
         self._rebuild_view()
         self.set_interval(0.25, self._poll_logs)
+        self.query_one("#log-output", Log).focus()
 
     def action_close(self) -> None:
         self.app.pop_screen()
