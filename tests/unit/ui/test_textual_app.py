@@ -68,3 +68,39 @@ def test_app_has_high_priority_quit_binding_for_q() -> None:
     binding = next(b for b in textual_app.OpcUaTuiApp.BINDINGS if b.key == "q")
     assert binding.action == "quit"
     assert binding.priority is True
+
+
+def test_action_quit_disconnects_before_exit() -> None:
+    app = textual_app.OpcUaTuiApp()
+    calls: list[str] = []
+
+    async def fake_disconnect() -> None:
+        calls.append("disconnect")
+
+    def fake_exit(*, result=None, return_code=0, message=None) -> None:
+        calls.append("exit")
+
+    app.opcua.disconnect = fake_disconnect  # type: ignore[method-assign]
+    app.exit = fake_exit  # type: ignore[method-assign]
+
+    asyncio.run(app.action_quit())
+
+    assert calls == ["disconnect", "exit"]
+
+
+def test_on_exit_app_disconnects_then_calls_super(monkeypatch) -> None:
+    app = textual_app.OpcUaTuiApp()
+    calls: list[str] = []
+
+    async def fake_disconnect() -> None:
+        calls.append("disconnect")
+
+    async def fake_super_on_exit_app(self) -> None:
+        calls.append("super")
+
+    app.opcua.disconnect = fake_disconnect  # type: ignore[method-assign]
+    monkeypatch.setattr(textual_app.App, "_on_exit_app", fake_super_on_exit_app)
+
+    asyncio.run(app._on_exit_app())
+
+    assert calls == ["disconnect", "super"]

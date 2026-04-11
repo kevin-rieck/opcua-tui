@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from textual.app import App
@@ -14,6 +15,8 @@ from opcua_tui.domain.models import ConnectParams, SessionInfo
 from opcua_tui.infrastructure.opcua.stub_client import StubOpcUaClientAdapter
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
 from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
+
+logger = logging.getLogger(__name__)
 
 
 class OpcUaTuiApp(App[None]):
@@ -77,6 +80,20 @@ class OpcUaTuiApp(App[None]):
         )
         session = await self.opcua.connect(params)
         await self._handle_connect_modal_result(session)
+
+    async def _disconnect_client(self) -> None:
+        try:
+            await self.opcua.disconnect()
+        except Exception:
+            logger.exception("Disconnect during app shutdown failed")
+
+    async def action_quit(self) -> None:
+        await self._disconnect_client()
+        self.exit()
+
+    async def _on_exit_app(self) -> None:
+        await self._disconnect_client()
+        await super()._on_exit_app()
 
 
 def run() -> None:
