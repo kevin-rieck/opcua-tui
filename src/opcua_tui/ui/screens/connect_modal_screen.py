@@ -1,22 +1,27 @@
 from __future__ import annotations
 
+import logging
+import uuid
+
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
+from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
 
-from opcua_tui.app.messages import (
-    ConnectFormUpdated,
-    ConnectFormValidationFailed,
-    ConnectModalClosed,
-    ConnectRequested,
-)
-from opcua_tui.app.store import Store
+from opcua_tui.application.ports.opcua_client import OpcUaClientPort
 from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
-from opcua_tui.domain.models import AppState, ConnectParams, SessionInfo
+from opcua_tui.domain.models import ConnectParams, SessionInfo
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectModalScreen(ModalScreen[SessionInfo | None]):
+    endpoint: reactive[str] = reactive("")
+    is_submitting: reactive[bool] = reactive(False)
+    error_text: reactive[str] = reactive("")
+
     CSS = """
     ConnectModalScreen {
         align: center middle;
@@ -107,9 +112,15 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         ("enter", "submit", "Connect"),
     ]
 
-    def __init__(self, store: Store) -> None:
+    def __init__(
+        self,
+        *,
+        opcua: OpcUaClientPort,
+        initial_params: ConnectParams,
+    ) -> None:
         super().__init__()
-        self.store = store
+        self._opcua = opcua
+        self._initial_params = initial_params
         self._suppress_form_events = False
         self._dismissed = False
 
@@ -138,40 +149,42 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
                 yield Button("Connect", id="submit", variant="primary")
 
     async def on_mount(self) -> None:
-        self.store.subscribe(self.on_state_changed)
-        self.render_state(self.store.state)
+        self.endpoint = self._initial_params.endpoint
+        self._refresh_view()
         self.query_one("#endpoint", Input).focus()
 
-    def on_state_changed(self, state: AppState) -> None:
-        self.render_state(state)
-        if (
-            state.session.status == "connected"
-            and state.session.session is not None
-            and not self._dismissed
-        ):
-            self._dismissed = True
-            self.dismiss(state.session.session)
+    def watch_endpoint(self, _endpoint: str) -> None:
+        self._refresh_view()
 
-    def render_state(self, state: AppState) -> None:
+    def watch_is_submitting(self, _is_submitting: bool) -> None:
+        self._refresh_view()
+
+    def watch_error_text(self, _error_text: str) -> None:
+        self._refresh_view()
+
+    def _refresh_view(self) -> None:
         endpoint_input = self.query_one("#endpoint", Input)
         error_widget = self.query_one("#connect-error", Static)
         submit_button = self.query_one("#submit", Button)
+        cancel_button = self.query_one("#cancel", Button)
 
-        params = state.connect_modal.params
         self._suppress_form_events = True
         try:
-            if endpoint_input.value != params.endpoint:
-                endpoint_input.value = params.endpoint
+            if endpoint_input.value != self.endpoint:
+                endpoint_input.value = self.endpoint
         finally:
             self._suppress_form_events = False
 
-        submit_button.disabled = state.connect_modal.is_submitting or not params.endpoint.strip()
-        error_widget.update(state.connect_modal.error or "")
+        endpoint_input.disabled = self.is_submitting
+        cancel_button.disabled = self.is_submitting
+        submit_button.disabled = self.is_submitting or not self.endpoint.strip()
+        submit_button.label = "Connecting..." if self.is_submitting else "Connect"
+        error_widget.update(self.error_text)
 
     async def on_input_changed(self, _event: Input.Changed) -> None:
         if self._suppress_form_events:
             return
-        await self.store.dispatch(ConnectFormUpdated(params=self._read_form_values()))
+        self.endpoint = self.query_one("#endpoint", Input).value
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
@@ -181,9 +194,8 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
             await self._submit_form()
 
     async def action_cancel(self) -> None:
-        if self.store.state.connect_modal.is_submitting:
+        if self.is_submitting:
             return
-        await self.store.dispatch(ConnectModalClosed())
         self.dismiss(None)
 
     async def action_submit(self) -> None:
@@ -193,10 +205,30 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         params = self._read_form_values()
         validation_error = self._validate_params(params)
         if validation_error is not None:
-            await self.store.dispatch(ConnectFormValidationFailed(error=validation_error))
+            self.error_text = validation_error
             return
 
-        await self.store.dispatch(ConnectRequested(params=params))
+        self.error_text = ""
+        self.is_submitting = True
+        self.run_worker(self._connect(params), exclusive=True, group="connect")
+
+    async def _connect(self, params: ConnectParams) -> None:
+        try:
+            session = await self._opcua.connect(params)
+        except Exception as exc:
+            error_ref = uuid.uuid4().hex[:8]
+            logger.exception(
+                "OPC UA connect failed",
+                extra={"endpoint": params.endpoint, "error_ref": error_ref},
+            )
+            self.error_text = f"{exc} (ref: {error_ref})"
+            self.is_submitting = False
+            return
+
+        self.is_submitting = False
+        if not self._dismissed:
+            self._dismissed = True
+            self.dismiss(session)
 
     def _validate_params(self, params: ConnectParams) -> str | None:
         endpoint = params.endpoint.strip()

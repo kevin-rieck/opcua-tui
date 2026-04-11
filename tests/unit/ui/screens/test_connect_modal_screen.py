@@ -1,28 +1,12 @@
 import asyncio
 
-from opcua_tui.app.messages import ConnectFormValidationFailed, ConnectRequested
-from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
-from opcua_tui.domain.models import (
-    AppState,
-    ConnectModalState,
-    ConnectParams,
-    SessionState,
-    UiState,
-)
+from opcua_tui.domain.models import ConnectParams
 from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
 
 
-class FakeStore:
-    def __init__(self, state: AppState) -> None:
-        self.state = state
-        self.dispatched: list[object] = []
-        self.subscribers: list[object] = []
-
-    def subscribe(self, fn) -> None:
-        self.subscribers.append(fn)
-
-    async def dispatch(self, message: object) -> None:
-        self.dispatched.append(message)
+class FakeOpcUa:
+    async def connect(self, _params: ConnectParams):
+        raise NotImplementedError
 
 
 class FakeInput:
@@ -35,14 +19,10 @@ class FakeInput:
         self.focused = True
 
 
-class FakeSelect:
-    def __init__(self, value: str = "") -> None:
-        self.value = value
-
-
 class FakeButton:
-    def __init__(self) -> None:
+    def __init__(self, label: str = "Connect") -> None:
         self.disabled = False
+        self.label = label
 
 
 class FakeStatic:
@@ -53,108 +33,63 @@ class FakeStatic:
         self.text = value
 
 
-def _build_widgets() -> dict[str, object]:
+def _build_widgets(endpoint: str = "") -> dict[str, object]:
     return {
-        "#endpoint": FakeInput(),
-        "#security_mode": FakeSelect(),
-        "#security_policy": FakeSelect(),
-        "#authentication_mode": FakeSelect(),
-        "#username": FakeInput(),
-        "#password": FakeInput(),
-        "#certificate_path": FakeInput(),
-        "#private_key_path": FakeInput(),
+        "#endpoint": FakeInput(value=endpoint),
         "#connect-error": FakeStatic(),
         "#submit": FakeButton(),
+        "#cancel": FakeButton(label="Cancel"),
     }
 
 
 def test_connect_modal_on_mount_focuses_endpoint_and_renders_defaults(monkeypatch) -> None:
-    state = AppState(
-        connect_modal=ConnectModalState(
-            is_open=True,
-            params=ConnectParams(
-                endpoint="opc.tcp://localhost:4840",
-                security_mode=SecurityMode.NONE,
-                security_policy=SecurityPolicy.NONE,
-                authentication_mode=AuthenticationMode.ANONYMOUS,
-            ),
-        ),
-        ui=UiState(status_text="Ready"),
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
     )
-    store = FakeStore(state)
-    screen = ConnectModalScreen(store)
     widgets = _build_widgets()
-
     monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
 
     asyncio.run(screen.on_mount())
 
-    assert len(store.subscribers) == 1
+    assert screen.endpoint == "opc.tcp://localhost:4840"
     assert widgets["#endpoint"].focused is True
-    assert widgets["#security_mode"].value == SecurityMode.NONE.value
-    assert widgets["#security_policy"].value == SecurityPolicy.NONE.value
-    assert widgets["#authentication_mode"].value == AuthenticationMode.ANONYMOUS.value
-    assert widgets["#username"].disabled is True
-    assert widgets["#password"].disabled is True
     assert widgets["#submit"].disabled is False
 
 
-def test_connect_modal_submit_dispatches_connect_requested(monkeypatch) -> None:
-    state = AppState(connect_modal=ConnectModalState(is_open=True))
-    store = FakeStore(state)
-    screen = ConnectModalScreen(store)
-    params = ConnectParams(
-        endpoint="opc.tcp://localhost:4840",
-        security_mode=SecurityMode.NONE,
-        security_policy=SecurityPolicy.NONE,
-        authentication_mode=AuthenticationMode.ANONYMOUS,
+def test_connect_modal_submit_starts_connect_for_valid_endpoint(monkeypatch) -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
     )
-    monkeypatch.setattr(screen, "_read_form_values", lambda: params)
+    widgets = _build_widgets(endpoint="opc.tcp://localhost:4840")
+    started: list[object] = []
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
+
+    def fake_run_worker(coro, *, exclusive=False, group=None):
+        started.append((coro, exclusive, group))
+        coro.close()
+        return None
+
+    monkeypatch.setattr(screen, "run_worker", fake_run_worker)
 
     asyncio.run(screen._submit_form())
 
-    assert len(store.dispatched) == 1
-    assert store.dispatched[0] == ConnectRequested(params=params)
+    assert screen.is_submitting is True
+    assert len(started) == 1
+    assert started[0][1] is True
+    assert started[0][2] == "connect"
 
 
 def test_connect_modal_submit_rejects_invalid_endpoint(monkeypatch) -> None:
-    state = AppState(connect_modal=ConnectModalState(is_open=True))
-    store = FakeStore(state)
-    screen = ConnectModalScreen(store)
-    monkeypatch.setattr(screen, "_read_form_values", lambda: ConnectParams(endpoint="http://bad"))
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+    widgets = _build_widgets(endpoint="http://bad")
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
 
     asyncio.run(screen._submit_form())
 
-    assert len(store.dispatched) == 1
-    assert store.dispatched[0] == ConnectFormValidationFailed(
-        error="Endpoint must start with opc.tcp://"
-    )
-
-
-def test_connect_modal_render_state_enables_certificate_fields_for_certificate_auth(
-    monkeypatch,
-) -> None:
-    state = AppState(
-        session=SessionState(status="disconnected"),
-        connect_modal=ConnectModalState(
-            is_open=True,
-            params=ConnectParams(
-                endpoint="opc.tcp://localhost:4840",
-                authentication_mode=AuthenticationMode.CERTIFICATE,
-            ),
-            error="boom",
-        ),
-    )
-    store = FakeStore(state)
-    screen = ConnectModalScreen(store)
-    widgets = _build_widgets()
-
-    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
-
-    screen.render_state(state)
-
-    assert widgets["#username"].disabled is True
-    assert widgets["#password"].disabled is True
-    assert widgets["#certificate_path"].disabled is False
-    assert widgets["#private_key_path"].disabled is False
-    assert widgets["#connect-error"].text == "boom"
+    assert screen.is_submitting is False
+    assert screen.error_text == "Endpoint must start with opc.tcp://"
