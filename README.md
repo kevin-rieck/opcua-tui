@@ -1,34 +1,67 @@
-# OPC UA TUI Starter
+# OPC UA TUI
 
-A runnable starter project for a terminal UI focused on OPC UA workflows.
+A Textual-based terminal UI for connecting to an OPC UA server, browsing the address space, inspecting node data, writing scalar values, and viewing runtime logs.
 
-## Included
-
-- Textual application shell
-- Left-hand address tree
-- Right-hand node details panel
-- Bottom status bar
-- Central store, reducer, and effects
-- Stub OPC UA adapter for local development
-- End-to-end flow from UI event -> message -> effect -> state update -> UI render
-
-## Tooling
-
-- `uv` for environment and dependency management
-- `ruff` for linting and formatting
-- `pre-commit` hooks for automated checks
-- `Makefile` shortcuts for common tasks
-
-## Run
+## How To (Quick Start)
 
 ```bash
 uv sync --extra dev
 uv run opcua-tui
 ```
 
-## Common commands
+1. Enter an endpoint in the connect modal (for local testing: `opc.tcp://localhost:48010`).
+2. Press `Enter` (or select `Connect`).
+3. Browse the tree, select a node to inspect, and use the write panel to update values.
+4. Press `Ctrl+L` to open the log viewer.
+
+## Current State
+
+- Real async OPC UA client is used (`asyncua`); this is not a stub-only flow anymore.
+- App starts with a connect modal and connects only after user submit.
+- Browser screen includes:
+  - Address tree with lazy child loading
+  - Inspector panel (attributes + value + status code)
+  - Write value panel
+  - Status bar + footer
+- Log viewer screen is available in-app (`Ctrl+L`) with filter and level controls.
+- State is driven via store/reducer/effects (`UI event -> message -> effect -> state -> render`).
+
+## Current Limitations
+
+- Connect UI currently supports only insecure anonymous connections.
+- Endpoint must start with `opc.tcp://`.
+- Security mode/policy and credential/certificate inputs are not yet exposed in the UI.
+
+## Key Bindings
+
+- Global:
+  - `q`: quit
+- Connect modal:
+  - `Enter`: connect
+  - `Esc`: cancel/exit
+- Browser:
+  - `w`: focus write input
+  - `Ctrl+L`: open log viewer
+- Log viewer:
+  - `Esc` or `q`: back
+  - `f`: toggle follow mode
+  - `c`: clear current log view
+  - `/`: focus filter input
+  - `l`: cycle minimum level (`DEBUG`/`INFO`/`WARNING`/`ERROR`)
+
+## Tooling
+
+- `uv` for environment and dependency management
+- `ruff` for linting and formatting
+- `pytest` for tests
+- `pre-commit` hooks for automated checks
+- `Makefile` shortcuts for common tasks
+
+## Development Commands
 
 ```bash
+make sync
+make run
 make lint
 make format
 make test
@@ -37,15 +70,43 @@ make pre-commit-run
 
 ## Logging
 
-- Runtime logs are written to a rotating file at `~/.opcua-tui/logs/opcua-tui.log` by default.
-- Set `OPCUA_TUI_LOG_DIR` to override the log directory.
-- Set `OPCUA_TUI_LOG_LEVEL` to control verbosity (`INFO` by default, `DEBUG` for deep diagnostics).
+- Default file output: `~/.opcua-tui/logs/opcua-tui.log` (rotating).
+- In-memory ring buffer powers the in-app log viewer.
+- Root logger capture includes `opcua_tui.*`, `asyncua.*`, and `textual.*`.
+- Environment variables:
+  - `OPCUA_TUI_LOG_DIR`
+  - `OPCUA_TUI_LOG_LEVEL`
+  - `OPCUA_TUI_LOG_FILE_MAX_BYTES`
+  - `OPCUA_TUI_LOG_FILE_BACKUP_COUNT`
+  - `OPCUA_TUI_LOG_BUFFER_SIZE`
+  - `OPCUA_TUI_LOG_LEVEL_ASYNCUA`
+  - `OPCUA_TUI_LOG_LEVEL_TEXTUAL`
+  - `OPCUA_TUI_LOG_TEXTUAL_HANDLER=1`
+  - `OPCUA_TUI_LOG_TEXTUAL_STDERR`
+  - `OPCUA_TUI_LOG_TEXTUAL_STDOUT`
 
-## Current flow
+## Write Support
 
-- The app auto-connects to a stub server on startup.
-- Root nodes are loaded into the tree.
-- Selecting a node dispatches `NodeSelected`.
-- Effects read attributes and value from the stub adapter.
-- State updates drive the details panel and status bar.
-- Expanding a node lazily loads children once.
+- Scalar write support with optional type hint from node metadata/value type.
+- Supported scalar types:
+  - `Boolean`
+  - `SByte`, `Byte`
+  - `Int16`, `UInt16`
+  - `Int32`, `UInt32`
+  - `Int64`, `UInt64`
+  - `Float`, `Double`
+  - `String`
+- Integer ranges are validated by type.
+- Without a hint, parsing fallback is: `bool -> int -> float -> string`.
+- If server returns `BadWriteNotSupported`, client retries with value-only attribute write.
+
+## Screenshot Harness (UI Debugging)
+
+Script: `tools/capture_screenshot.py`
+
+```bash
+uv run .\tools\capture_screenshot.py
+uv run .\tools\capture_screenshot.py --screen connect --output artifacts/screens/connect-modal-current.svg
+uv run .\tools\capture_screenshot.py --screen browser --endpoint opc.tcp://localhost:48010 --output artifacts/screens/browser-post-connect.svg
+uv run .\tools\capture_screenshot.py --screen logs --endpoint opc.tcp://localhost:48010 --output artifacts/screens/log-viewer-post-connect.svg
+```
