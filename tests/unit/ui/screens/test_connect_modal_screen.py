@@ -57,6 +57,8 @@ def _build_widgets(endpoint: str = "") -> dict[str, object]:
         "#password": FakeInput(),
         "#certificate-path": FakeInput(),
         "#private-key-path": FakeInput(),
+        "#browse-certificate-path": FakeButton(label="Browse..."),
+        "#browse-private-key-path": FakeButton(label="Browse..."),
         "#connect-error": FakeStatic(),
         "#submit": FakeButton(),
         "#cancel": FakeButton(label="Cancel"),
@@ -212,3 +214,51 @@ def test_connect_modal_sanitizes_endpoint_credentials_in_error_details() -> None
 
     assert "user:pass@" not in sanitized
     assert "opc.tcp://***@localhost:4840" in sanitized
+
+
+def test_connect_modal_browse_certificate_applies_selected_path(monkeypatch) -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+    widgets = _build_widgets(endpoint="opc.tcp://localhost:4840")
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
+
+    def fake_open_path_picker(*, target: str) -> None:
+        assert target == "certificate"
+        screen.certificate_path = "C:/certs/client.der"
+        screen._refresh_view()
+
+    monkeypatch.setattr(screen, "_browse_for_path", fake_open_path_picker)
+    event = type(
+        "PressedEvent", (), {"button": type("Button", (), {"id": "browse-certificate-path"})}
+    )()
+
+    asyncio.run(screen.on_button_pressed(event))
+
+    assert screen.certificate_path == "C:/certs/client.der"
+    assert widgets["#certificate-path"].value == "C:/certs/client.der"
+
+
+def test_connect_modal_browse_private_key_applies_selected_path(monkeypatch) -> None:
+    screen = ConnectModalScreen(
+        opcua=FakeOpcUa(),
+        initial_params=ConnectParams(endpoint="opc.tcp://localhost:4840"),
+    )
+    widgets = _build_widgets(endpoint="opc.tcp://localhost:4840")
+    monkeypatch.setattr(screen, "query_one", lambda selector, _type=None: widgets[selector])
+
+    def fake_open_path_picker(*, target: str) -> None:
+        assert target == "private_key"
+        screen.private_key_path = "C:/certs/client.pem"
+        screen._refresh_view()
+
+    monkeypatch.setattr(screen, "_browse_for_path", fake_open_path_picker)
+    event = type(
+        "PressedEvent", (), {"button": type("Button", (), {"id": "browse-private-key-path"})}
+    )()
+
+    asyncio.run(screen.on_button_pressed(event))
+
+    assert screen.private_key_path == "C:/certs/client.pem"
+    assert widgets["#private-key-path"].value == "C:/certs/client.pem"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -13,6 +14,7 @@ from opcua_tui.application.ports.opcua_client import OpcUaClientPort
 from opcua_tui.domain.endpoint import sanitize_endpoint
 from opcua_tui.domain.enums import AuthenticationMode, SecurityMode, SecurityPolicy
 from opcua_tui.domain.models import ConnectParams, SessionInfo
+from opcua_tui.ui.screens.path_picker_screen import PathPickerScreen
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,15 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
     .connect-input {
         width: 1fr;
         height: 3;
+    }
+
+    .connect-path-row {
+        height: auto;
+    }
+
+    .connect-path-row > Button {
+        margin-left: 1;
+        width: auto;
     }
 
     Select {
@@ -216,18 +227,22 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
                         yield Input(id="password", password=True, classes="connect-input")
                     with Vertical(classes="connect-field"):
                         yield Label("Client Certificate Path", classes="connect-label")
-                        yield Input(
-                            placeholder="(optional) auto-generate under ~/.opcua-tui/pki",
-                            id="certificate-path",
-                            classes="connect-input",
-                        )
+                        with Horizontal(classes="connect-path-row"):
+                            yield Input(
+                                placeholder="(optional) auto-generate under ~/.opcua-tui/pki",
+                                id="certificate-path",
+                                classes="connect-input",
+                            )
+                            yield Button("Browse...", id="browse-certificate-path")
                     with Vertical(classes="connect-field"):
                         yield Label("Client Private Key Path", classes="connect-label")
-                        yield Input(
-                            placeholder="(optional) auto-generate under ~/.opcua-tui/pki",
-                            id="private-key-path",
-                            classes="connect-input",
-                        )
+                        with Horizontal(classes="connect-path-row"):
+                            yield Input(
+                                placeholder="(optional) auto-generate under ~/.opcua-tui/pki",
+                                id="private-key-path",
+                                classes="connect-input",
+                            )
+                            yield Button("Browse...", id="browse-private-key-path")
                     yield Static(
                         "Username/password is available in v1. "
                         "Certificate identity auth is not yet supported.",
@@ -271,6 +286,8 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         password_input = self.query_one("#password", Input)
         cert_path_input = self.query_one("#certificate-path", Input)
         key_path_input = self.query_one("#private-key-path", Input)
+        cert_browse_button = self.query_one("#browse-certificate-path", Button)
+        key_browse_button = self.query_one("#browse-private-key-path", Button)
         error_widget = self.query_one("#connect-error", Static)
         submit_button = self.query_one("#submit", Button)
         cancel_button = self.query_one("#cancel", Button)
@@ -308,6 +325,8 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         password_input.disabled = self.is_submitting
         cert_path_input.disabled = self.is_submitting
         key_path_input.disabled = self.is_submitting
+        cert_browse_button.disabled = self.is_submitting
+        key_browse_button.disabled = self.is_submitting
         cancel_button.disabled = self.is_submitting
         submit_button.disabled = self.is_submitting or not self.endpoint.strip()
         submit_button.label = "Connecting..." if self.is_submitting else "Connect"
@@ -335,6 +354,12 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
             return
         if event.button.id == "submit":
             await self._submit_form()
+            return
+        if event.button.id == "browse-certificate-path":
+            self._browse_for_path(target="certificate")
+            return
+        if event.button.id == "browse-private-key-path":
+            self._browse_for_path(target="private_key")
 
     async def action_cancel(self) -> None:
         if self.is_submitting:
@@ -420,6 +445,55 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
             certificate_path=self.query_one("#certificate-path", Input).value.strip(),
             private_key_path=self.query_one("#private-key-path", Input).value.strip(),
         )
+
+    def _browse_for_path(self, *, target: str) -> None:
+        if self.is_submitting:
+            return
+
+        if target == "certificate":
+            current_value = self.certificate_path
+            title = "Select Client Certificate"
+            extension_hints = (".der", ".pem", ".crt", ".cer")
+        else:
+            current_value = self.private_key_path
+            title = "Select Client Private Key"
+            extension_hints = (".pem", ".key", ".der")
+
+        picker = PathPickerScreen(
+            title=title,
+            start_dir=self._resolve_picker_start_dir(current_value),
+            extension_hints=extension_hints,
+            initial_filename=self._resolve_initial_filename(current_value),
+        )
+        self.app.push_screen(
+            picker,
+            callback=lambda selected: self._apply_browsed_path(target=target, selected=selected),
+        )
+
+    def _apply_browsed_path(self, *, target: str, selected: str | None) -> None:
+        if selected is None:
+            return
+        if target == "certificate":
+            self.certificate_path = selected
+        else:
+            self.private_key_path = selected
+        self._refresh_view()
+
+    def _resolve_picker_start_dir(self, raw_value: str) -> str:
+        trimmed = raw_value.strip()
+        if not trimmed:
+            return str(Path.home())
+
+        candidate = Path(trimmed).expanduser()
+        if candidate.is_dir():
+            return str(candidate)
+        return str(candidate.parent)
+
+    def _resolve_initial_filename(self, raw_value: str) -> str:
+        trimmed = raw_value.strip()
+        if not trimmed:
+            return ""
+        return Path(trimmed).name
 
     def _format_connection_error(
         self,
