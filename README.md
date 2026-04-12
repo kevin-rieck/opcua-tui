@@ -137,3 +137,8 @@ uv run .\tools\capture_screenshot.py --screen connect --output artifacts/screens
 uv run .\tools\capture_screenshot.py --screen browser --endpoint opc.tcp://localhost:48010 --output artifacts/screens/browser-post-connect.svg
 uv run .\tools\capture_screenshot.py --screen logs --endpoint opc.tcp://localhost:48010 --output artifacts/screens/log-viewer-post-connect.svg
 ```
+
+## Licensing
+
+- Project license: MIT (`LICENSE`)
+- Third-party dependency notices: `THIRD_PARTY_NOTICES.md`
