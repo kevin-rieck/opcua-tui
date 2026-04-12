@@ -40,7 +40,7 @@ class BrowserScreen(Screen):
     """
 
     BINDINGS = [
-        ("w", "focus_write_input", "Write Value"),
+        ("ctrl+w", "focus_write_input", "Write Value"),
         ("ctrl+s", "toggle_subscription", "Sub Toggle"),
         ("ctrl+l", "show_logs", "Logs"),
     ]

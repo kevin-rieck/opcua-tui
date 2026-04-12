@@ -69,7 +69,7 @@ Validation rules:
   - `Enter`: connect
   - `Esc`: cancel/exit
 - Browser:
-  - `w`: focus write input
+  - `Ctrl+W`: focus write input
   - `Ctrl+S`: subscribe/unsubscribe focused Variable node
   - `Ctrl+L`: open log viewer
 - Log viewer:
