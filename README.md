@@ -12,7 +12,7 @@ uv run opcua-tui
 1. Enter an endpoint in the connect modal (for local testing: `opc.tcp://localhost:48010`).
 2. Choose security/auth options in the modal (or keep defaults for insecure anonymous).
 3. Press `Enter` (or select `Connect`).
-3. Browse the tree, select a node to inspect, use the subscription panel for live updates, and use the write panel to update values.
+3. Browse the tree, select a Variable node to inspect, press `Ctrl+S` to toggle live updates, and use the write panel to update values.
 4. Press `Ctrl+L` to open the log viewer.
 
 ## Current State
@@ -22,7 +22,7 @@ uv run opcua-tui
 - Browser screen includes:
   - Address tree with lazy child loading
   - Inspector panel (attributes + value + status code)
-  - Subscription panel (subscribe/unsubscribe selected Variable node)
+  - Subscription panel (subscription status + `Ctrl+S` toggle hint)
   - Watchlist panel (latest value updates for active subscriptions)
   - Write value panel
   - Status bar + footer
@@ -68,6 +68,7 @@ Validation rules:
   - `Esc`: cancel/exit
 - Browser:
   - `w`: focus write input
+  - `Ctrl+S`: subscribe/unsubscribe focused Variable node
   - `Ctrl+L`: open log viewer
 - Log viewer:
   - `Esc` or `q`: back

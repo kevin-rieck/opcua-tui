@@ -15,24 +15,18 @@ class FakeStatic:
         self.value = text
 
 
-class FakeButton:
-    def __init__(self) -> None:
-        self.label = ""
-        self.disabled = False
-
-
 class HarnessSubscriptionPanel(SubscriptionPanel):
     def __init__(self) -> None:
         super().__init__()
         self._target = FakeStatic()
-        self._button = FakeButton()
+        self._hotkey = FakeStatic()
         self._feedback = FakeStatic()
 
     def query_one(self, selector_or_type, _type=None):
         if selector_or_type == "#sub-target":
             return self._target
-        if selector_or_type == "#sub-toggle":
-            return self._button
+        if selector_or_type == "#sub-hotkey":
+            return self._hotkey
         if selector_or_type == "#sub-feedback":
             return self._feedback
         return super().query_one(selector_or_type, _type)
@@ -41,8 +35,9 @@ class HarnessSubscriptionPanel(SubscriptionPanel):
 def test_subscription_panel_disables_without_selection() -> None:
     panel = HarnessSubscriptionPanel()
     panel.render_from_state(InspectorState(), SubscriptionsState())
-    assert panel._button.disabled is True
     assert "select a node" in panel._target.value
+    assert "Ctrl+S" in panel._hotkey.value
+    assert "Select a Variable node" in panel._feedback.value
 
 
 def test_subscription_panel_only_allows_variables() -> None:
@@ -57,11 +52,10 @@ def test_subscription_panel_only_allows_variables() -> None:
         ),
     )
     panel.render_from_state(state, SubscriptionsState())
-    assert panel._button.disabled is True
     assert "Variable nodes only" in panel._feedback.value
 
 
-def test_subscription_panel_shows_unsubscribe_for_active_node() -> None:
+def test_subscription_panel_shows_active_state_for_subscribed_node() -> None:
     panel = HarnessSubscriptionPanel()
     state = InspectorState(
         node_id="n1",
@@ -81,5 +75,4 @@ def test_subscription_panel_shows_unsubscribe_for_active_node() -> None:
 
     panel.render_from_state(state, subscriptions)
 
-    assert panel._button.disabled is False
-    assert panel._button.label == "Unsubscribe"
+    assert "Live updates active." in panel._feedback.value

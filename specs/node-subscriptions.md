@@ -44,10 +44,11 @@ The app currently supports browsing, inspecting, and writing node values, but it
 - Keep raw callback value in domain update model for future enhancements.
 
 ### 4) UI Integration
-- Add explicit subscribe/unsubscribe control for selected node in inspector area.
+- Add keyboard hotkey toggle (`Ctrl+S`) in Browser screen to subscribe/unsubscribe the focused node.
 - Add watchlist panel to Browser screen to show active subscriptions and latest values.
 - Mark subscribed nodes in address tree labels.
 - Show per-node errors inline and global status updates in status bar.
+- In inspector area, show subscription status and hotkey guidance instead of action buttons.
 
 ## Data Structures
 - `SubscriptionValueUpdate` (domain):
@@ -71,29 +72,30 @@ The app currently supports browsing, inspecting, and writing node values, but it
   - Start stream after `ConnectionSucceeded`.
   - Handle subscribe/unsubscribe effects and callback dispatch.
 - `ui/widgets/subscription_panel.py` (new)
-  - Inspector action control for subscribe/unsubscribe.
+  - Inspector status/help panel for subscription state and `Ctrl+S` guidance.
 - `ui/widgets/watchlist_panel.py` (new)
   - Live watchlist rendering.
 - `ui/widgets/address_tree.py`
   - Add subscribed-node marker in labels.
 - `ui/screens/browser_screen.py`
   - Compose and render subscription panel + watchlist panel.
-  - Dispatch new subscribe/unsubscribe messages.
+  - Bind `Ctrl+S` to toggle subscribe/unsubscribe for the focused node.
+  - Dispatch new subscribe/unsubscribe messages from the hotkey action.
 
 ## Test Plan
 - Unit tests:
   - reducer subscription lifecycle and connection-reset cleanup.
   - effects subscribe/unsubscribe flow and callback dispatch.
   - protocol surface updates in client port tests.
-  - widget/screen tests for subscription panel, watchlist panel, and tree marker rendering.
+  - widget/screen tests for subscription panel status text, hotkey toggle behavior, watchlist panel, and tree marker rendering.
 - Infrastructure tests:
   - adapter stream lifecycle and monitored-item handle idempotency.
   - value rendering fallback behavior.
 - Integration/UI verification:
-  - Browser screen flow with selected Variable node, subscribe/unsubscribe action, and watchlist updates.
+  - Browser screen flow with focused Variable node, `Ctrl+S` toggle, and watchlist updates.
 
 ## Acceptance Criteria
-- User can subscribe/unsubscribe selected `Variable` nodes from Browser inspector.
+- User can subscribe/unsubscribe focused `Variable` nodes from Browser screen via `Ctrl+S`.
 - Watchlist shows active nodes and latest live values.
 - Address tree visually marks subscribed nodes.
 - Live updates propagate from asyncua callbacks into app state/UI without polling.

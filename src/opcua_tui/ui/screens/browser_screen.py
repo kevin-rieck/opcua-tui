@@ -27,6 +27,7 @@ from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 class BrowserScreen(Screen):
     BINDINGS = [
         ("w", "focus_write_input", "Write Value"),
+        ("ctrl+s", "toggle_subscription", "Sub Toggle"),
         ("ctrl+l", "show_logs", "Logs"),
     ]
 
@@ -120,6 +121,46 @@ class BrowserScreen(Screen):
     def action_show_logs(self) -> None:
         self.app.push_screen(LogViewerScreen())
 
+    async def action_toggle_subscription(self) -> None:
+        node_id = self._focused_tree_node_id()
+        if not node_id:
+            return
+
+        inspector = self.store.state.inspector
+        if inspector.loading or inspector.writing:
+            return
+        if inspector.attributes and inspector.attributes.node_class != "Variable":
+            return
+
+        subscriptions = self.store.state.subscriptions
+        if node_id in subscriptions.subscribing or node_id in subscriptions.unsubscribing:
+            return
+
+        item = subscriptions.items_by_node_id.get(node_id)
+        if item and item.active:
+            await self.store.dispatch(NodeUnsubscribeRequested(node_id=node_id))
+            return
+
+        display_name = (
+            inspector.attributes.display_name
+            if inspector.attributes and inspector.attributes.display_name
+            else node_id
+        )
+        await self.store.dispatch(
+            NodeSubscribeRequested(node_id=node_id, display_name=display_name)
+        )
+
+    def _focused_tree_node_id(self) -> str | None:
+        tree = self.query_one(AddressTree)
+        cursor_node = getattr(tree, "cursor_node", None)
+        data = getattr(cursor_node, "data", None)
+        node_id = getattr(data, "node_id", None)
+        if node_id in {"__root__", "__placeholder__"}:
+            return None
+        if isinstance(node_id, str):
+            return node_id
+        return self.store.state.browser.selected_node_id
+
     async def on_tree_node_selected(self, event) -> None:
         if self._suppress_tree_events:
             return
@@ -178,18 +219,3 @@ class BrowserScreen(Screen):
                 variant_hint=variant_hint,
             )
         )
-
-    async def on_subscription_panel_subscribe_requested(
-        self, message: SubscriptionPanel.SubscribeRequested
-    ) -> None:
-        node_id = message.node_id
-        if node_id in self.store.state.subscriptions.items_by_node_id:
-            return
-        await self.store.dispatch(
-            NodeSubscribeRequested(node_id=node_id, display_name=message.display_name)
-        )
-
-    async def on_subscription_panel_unsubscribe_requested(
-        self, message: SubscriptionPanel.UnsubscribeRequested
-    ) -> None:
-        await self.store.dispatch(NodeUnsubscribeRequested(node_id=message.node_id))

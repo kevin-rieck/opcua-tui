@@ -13,12 +13,13 @@ from opcua_tui.app.messages import (
 from opcua_tui.domain.models import (
     AppState,
     InspectorState,
+    NodeAttributes,
     NodeRef,
+    SubscriptionItemState,
     SubscriptionsState,
     UiState,
 )
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
-from opcua_tui.ui.widgets.subscription_panel import SubscriptionPanel
 from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
@@ -40,6 +41,7 @@ class FakeTree:
         self.replace_args = None
         self.selected = None
         self.replace_calls = 0
+        self.cursor_node = None
 
     def replace_with_state(self, roots, children_by_parent, expanded, subscribed_node_ids) -> None:
         self.replace_calls += 1
@@ -353,27 +355,91 @@ def test_browser_screen_focus_write_input_action(monkeypatch) -> None:
     assert panel.focused is True
 
 
-def test_browser_screen_subscription_panel_dispatches_messages() -> None:
+def test_browser_screen_toggle_subscription_action_subscribes_active_variable(monkeypatch) -> None:
     state = AppState(
+        inspector=InspectorState(
+            node_id="n1",
+            attributes=NodeAttributes(
+                node_id="n1",
+                display_name="N1",
+                browse_name="N1",
+                node_class="Variable",
+            ),
+        ),
         subscriptions=SubscriptionsState(),
     )
+    state.browser.selected_node_id = "n1"
     store = FakeStore(state=state)
     screen = BrowserScreen(store)
+    tree = FakeTree()
+    tree.cursor_node = SimpleNamespace(data=SimpleNamespace(node_id="n1"))
+    monkeypatch.setattr(screen, "query_one", lambda _t: tree)
 
-    asyncio.run(
-        screen.on_subscription_panel_subscribe_requested(
-            SubscriptionPanel.SubscribeRequested(node_id="n1", display_name="N1")
-        )
-    )
-    asyncio.run(
-        screen.on_subscription_panel_unsubscribe_requested(
-            SubscriptionPanel.UnsubscribeRequested(node_id="n1")
-        )
-    )
+    asyncio.run(screen.action_toggle_subscription())
 
     assert isinstance(store.dispatched[0], NodeSubscribeRequested)
-    assert isinstance(store.dispatched[1], NodeUnsubscribeRequested)
+    assert store.dispatched[0].node_id == "n1"
+    assert store.dispatched[0].display_name == "N1"
+
+
+def test_browser_screen_toggle_subscription_action_unsubscribes_active_item(monkeypatch) -> None:
+    subscriptions = SubscriptionsState()
+    subscriptions.items_by_node_id["n1"] = SubscriptionItemState(
+        node_id="n1", display_name="N1", active=True
+    )
+    state = AppState(
+        inspector=InspectorState(
+            node_id="n1",
+            attributes=NodeAttributes(
+                node_id="n1",
+                display_name="N1",
+                browse_name="N1",
+                node_class="Variable",
+            ),
+        ),
+        subscriptions=subscriptions,
+    )
+    state.browser.selected_node_id = "n1"
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    tree = FakeTree()
+    tree.cursor_node = SimpleNamespace(data=SimpleNamespace(node_id="n1"))
+    monkeypatch.setattr(screen, "query_one", lambda _t: tree)
+
+    asyncio.run(screen.action_toggle_subscription())
+
+    assert len(store.dispatched) == 1
+    assert isinstance(store.dispatched[0], NodeUnsubscribeRequested)
+    assert store.dispatched[0].node_id == "n1"
+
+
+def test_browser_screen_toggle_subscription_action_ignores_non_variable(monkeypatch) -> None:
+    state = AppState(
+        inspector=InspectorState(
+            node_id="n1",
+            attributes=NodeAttributes(
+                node_id="n1",
+                display_name="N1",
+                browse_name="N1",
+                node_class="Object",
+            ),
+        ),
+    )
+    state.browser.selected_node_id = "n1"
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    tree = FakeTree()
+    tree.cursor_node = SimpleNamespace(data=SimpleNamespace(node_id="n1"))
+    monkeypatch.setattr(screen, "query_one", lambda _t: tree)
+
+    asyncio.run(screen.action_toggle_subscription())
+
+    assert store.dispatched == []
 
 
 def test_browser_screen_has_log_viewer_binding() -> None:
     assert ("ctrl+l", "show_logs", "Logs") in BrowserScreen.BINDINGS
+
+
+def test_browser_screen_has_subscription_toggle_binding() -> None:
+    assert ("ctrl+s", "toggle_subscription", "Sub Toggle") in BrowserScreen.BINDINGS
