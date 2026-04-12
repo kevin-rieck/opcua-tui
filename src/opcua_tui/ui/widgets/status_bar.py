@@ -12,7 +12,7 @@ class StatusBar(Static):
     DEFAULT_CSS = """
     StatusBar {
         height: 1;
-        dock: bottom;
+        width: 1fr;
         background: $surface;
         color: $text;
         padding: 0 1;
