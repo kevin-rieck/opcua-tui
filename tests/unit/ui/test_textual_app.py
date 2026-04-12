@@ -61,7 +61,7 @@ def test_handle_connect_modal_result_pushes_browser_and_dispatches_state_message
     assert len(pushed_screens) == 1
     assert isinstance(pushed_screens[0], BrowserScreen)
     assert isinstance(dispatched[0], ConnectionSucceeded)
-    assert isinstance(dispatched[1], RootBrowseRequested)
+    assert any(isinstance(message, RootBrowseRequested) for message in dispatched)
 
 
 def test_app_has_high_priority_quit_binding_for_ctrl_q() -> None:

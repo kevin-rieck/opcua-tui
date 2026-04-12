@@ -29,6 +29,8 @@ from opcua_tui.app.messages import (
     NodeWriteStarted,
     NodeWriteSucceeded,
     NodeValueLoaded,
+    OperationFinished,
+    OperationStarted,
     RootBrowseFailed,
     RootBrowseRequested,
     RootBrowseStarted,
@@ -140,15 +142,20 @@ def test_effects_connect_success_and_failure() -> None:
     params = ConnectParams(endpoint="opc.tcp://localhost:4840")
 
     success_messages = _run_effect(ConnectRequested(params=params), FakeOpcUa())
-    assert isinstance(success_messages[0], ConnectionStarted)
-    assert isinstance(success_messages[1], ConnectionSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], ConnectionStarted)
+    assert isinstance(success_messages[2], ConnectionSucceeded)
+    assert isinstance(success_messages[3], OperationFinished)
 
     failing_client = FakeOpcUa()
     failing_client.raise_on_connect = True
     failure_messages = _run_effect(ConnectRequested(params=params), failing_client)
-    assert isinstance(failure_messages[0], ConnectionStarted)
-    assert isinstance(failure_messages[1], ConnectionFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], ConnectionStarted)
+    assert isinstance(failure_messages[2], ConnectionFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
+    assert failure_messages[3].error_ref is not None
 
 
 def test_effects_connection_succeeded_starts_subscription_stream() -> None:
@@ -190,44 +197,56 @@ def test_effects_subscription_callback_dispatches_value_message() -> None:
 
 def test_effects_root_browse_success_and_failure() -> None:
     success_messages = _run_effect(RootBrowseRequested(), FakeOpcUa())
-    assert isinstance(success_messages[0], RootBrowseStarted)
-    assert isinstance(success_messages[1], RootBrowseSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], RootBrowseStarted)
+    assert isinstance(success_messages[2], RootBrowseSucceeded)
+    assert isinstance(success_messages[3], OperationFinished)
 
     failing_client = FakeOpcUa()
     failing_client.raise_on_browse = True
     failure_messages = _run_effect(RootBrowseRequested(), failing_client)
-    assert isinstance(failure_messages[0], RootBrowseStarted)
-    assert isinstance(failure_messages[1], RootBrowseFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], RootBrowseStarted)
+    assert isinstance(failure_messages[2], RootBrowseFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
 
 
 def test_effects_node_expand_success_and_failure() -> None:
     success_messages = _run_effect(NodeExpandRequested(node_id="i=85"), FakeOpcUa())
-    assert isinstance(success_messages[0], ChildrenLoadStarted)
-    assert isinstance(success_messages[1], ChildrenLoadSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], ChildrenLoadStarted)
+    assert isinstance(success_messages[2], ChildrenLoadSucceeded)
+    assert isinstance(success_messages[3], OperationFinished)
 
     failing_client = FakeOpcUa()
     failing_client.raise_on_browse = True
     failure_messages = _run_effect(NodeExpandRequested(node_id="i=85"), failing_client)
-    assert isinstance(failure_messages[0], ChildrenLoadStarted)
-    assert isinstance(failure_messages[1], ChildrenLoadFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], ChildrenLoadStarted)
+    assert isinstance(failure_messages[2], ChildrenLoadFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
 
 
 def test_effects_node_selected_success_and_failure() -> None:
     node_id = "ns=2;s=Temperature"
 
     success_messages = _run_effect(NodeSelected(node_id=node_id), FakeOpcUa())
-    assert isinstance(success_messages[0], NodeInspectionStarted)
-    assert isinstance(success_messages[1], NodeAttributesLoaded)
-    assert isinstance(success_messages[2], NodeValueLoaded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], NodeInspectionStarted)
+    assert isinstance(success_messages[2], NodeAttributesLoaded)
+    assert isinstance(success_messages[3], NodeValueLoaded)
+    assert isinstance(success_messages[4], OperationFinished)
 
     failing_client = FakeOpcUa()
     failing_client.raise_on_value = True
     failure_messages = _run_effect(NodeSelected(node_id=node_id), failing_client)
-    assert isinstance(failure_messages[0], NodeInspectionStarted)
-    assert isinstance(failure_messages[1], NodeInspectionFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], NodeInspectionStarted)
+    assert isinstance(failure_messages[2], NodeInspectionFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
 
 
 def test_effects_node_write_success_and_failure() -> None:
@@ -237,9 +256,11 @@ def test_effects_node_write_success_and_failure() -> None:
     success_messages = _run_effect(
         NodeWriteRequested(node_id=node_id, value_text="42", variant_hint="Int32"), client
     )
-    assert isinstance(success_messages[0], NodeWriteStarted)
-    assert isinstance(success_messages[1], NodeValueLoaded)
-    assert isinstance(success_messages[2], NodeWriteSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], NodeWriteStarted)
+    assert isinstance(success_messages[2], NodeValueLoaded)
+    assert isinstance(success_messages[3], NodeWriteSucceeded)
+    assert isinstance(success_messages[4], OperationFinished)
     assert client.last_write == (node_id, "42", "Int32")
 
     failing_client = FakeOpcUa()
@@ -247,9 +268,11 @@ def test_effects_node_write_success_and_failure() -> None:
     failure_messages = _run_effect(
         NodeWriteRequested(node_id=node_id, value_text="42", variant_hint="Int32"), failing_client
     )
-    assert isinstance(failure_messages[0], NodeWriteStarted)
-    assert isinstance(failure_messages[1], NodeWriteFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], NodeWriteStarted)
+    assert isinstance(failure_messages[2], NodeWriteFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
 
 
 def test_effects_subscription_success_and_failure() -> None:
@@ -258,8 +281,10 @@ def test_effects_subscription_success_and_failure() -> None:
     success_messages = _run_effect(
         NodeSubscribeRequested(node_id=node_id, display_name="Temperature"), client
     )
-    assert isinstance(success_messages[0], NodeSubscribeStarted)
-    assert isinstance(success_messages[1], NodeSubscribeSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], NodeSubscribeStarted)
+    assert isinstance(success_messages[2], NodeSubscribeSucceeded)
+    assert isinstance(success_messages[3], OperationFinished)
 
     failing_client = FakeOpcUa()
     failing_client.raise_on_subscribe = True
@@ -267,16 +292,20 @@ def test_effects_subscription_success_and_failure() -> None:
         NodeSubscribeRequested(node_id=node_id, display_name="Temperature"),
         failing_client,
     )
-    assert isinstance(failure_messages[0], NodeSubscribeStarted)
-    assert isinstance(failure_messages[1], NodeSubscribeFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[0], OperationStarted)
+    assert isinstance(failure_messages[1], NodeSubscribeStarted)
+    assert isinstance(failure_messages[2], NodeSubscribeFailed)
+    assert isinstance(failure_messages[3], OperationFinished)
+    assert failure_messages[2].error_ref is not None
 
 
 def test_effects_unsubscribe_success() -> None:
     node_id = "ns=2;s=Temperature"
     success_messages = _run_effect(NodeUnsubscribeRequested(node_id=node_id), FakeOpcUa())
-    assert isinstance(success_messages[0], NodeUnsubscribeStarted)
-    assert isinstance(success_messages[1], NodeUnsubscribeSucceeded)
+    assert isinstance(success_messages[0], OperationStarted)
+    assert isinstance(success_messages[1], NodeUnsubscribeStarted)
+    assert isinstance(success_messages[2], NodeUnsubscribeSucceeded)
+    assert isinstance(success_messages[3], OperationFinished)
 
 
 def test_effects_logs_exception_context_with_error_ref(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -291,11 +320,11 @@ def test_effects_logs_exception_context_with_error_ref(monkeypatch: pytest.Monke
     monkeypatch.setattr("opcua_tui.app.effects.logger.exception", fake_exception)
     failure_messages = _run_effect(ConnectRequested(params=params), failing_client)
 
-    assert isinstance(failure_messages[1], ConnectionFailed)
-    assert failure_messages[1].error_ref is not None
+    assert isinstance(failure_messages[2], ConnectionFailed)
+    assert failure_messages[2].error_ref is not None
     assert captured["operation"] == "connect"
     assert captured["endpoint"] == "opc.tcp://localhost:4840"
-    assert captured["error_ref"] == failure_messages[1].error_ref
+    assert captured["error_ref"] == failure_messages[2].error_ref
 
 
 def test_effects_redacts_endpoint_credentials_in_connect_flow() -> None:
@@ -305,8 +334,8 @@ def test_effects_redacts_endpoint_credentials_in_connect_flow() -> None:
 
     failure_messages = _run_effect(ConnectRequested(params=params), failing_client)
 
-    started = failure_messages[0]
-    failed = failure_messages[1]
+    started = failure_messages[1]
+    failed = failure_messages[2]
     assert isinstance(started, ConnectionStarted)
     assert isinstance(failed, ConnectionFailed)
     assert started.endpoint == "opc.tcp://***@example.com:4840"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header
@@ -124,7 +126,10 @@ class BrowserScreen(Screen):
             and not state.inspector.write_error
         ):
             write_panel.clear_input()
-        status.render_status(state.ui.status_text)
+        status.render_status(
+            state.ui.status_text,
+            activities=list(state.ui.activities.values()),
+        )
         self._last_rendered_state = state
 
     def action_focus_write_input(self) -> None:
@@ -196,7 +201,9 @@ class BrowserScreen(Screen):
         already_loaded = data.node_id in state.browser.children_by_parent
         already_loading = data.node_id in state.browser.loading
         if data.has_children and not already_loaded and not already_loading:
-            await self.store.dispatch(NodeExpandRequested(node_id=data.node_id))
+            asyncio.create_task(self.store.dispatch(NodeExpandRequested(node_id=data.node_id)))
+            # Yield once so the scheduled dispatch can start without blocking this handler.
+            await asyncio.sleep(0)
 
     async def on_tree_node_collapsed(self, event) -> None:
         if self._suppress_tree_events:

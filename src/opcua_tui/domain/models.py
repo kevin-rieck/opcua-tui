@@ -120,6 +120,19 @@ class InspectorState:
 @dataclass(slots=True)
 class UiState:
     status_text: str = "Ready"
+    activities: dict[str, "OperationActivity"] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class OperationActivity:
+    op_id: str
+    kind: str
+    label: str
+    scope: str
+    started_at: float
+    progress_current: int | None = None
+    progress_total: int | None = None
+    error: str | None = None
 
 
 @dataclass(slots=True)

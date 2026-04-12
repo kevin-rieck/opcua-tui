@@ -64,6 +64,22 @@ class ConnectionFailed(Message):
 
 
 @dataclass(slots=True, frozen=True)
+class OperationStarted(Message):
+    op_id: str
+    kind: str
+    label: str
+    scope: str = "global"
+    started_at: float | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class OperationFinished(Message):
+    op_id: str
+    error: str | None = None
+    error_ref: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class RootBrowseRequested(Message):
     pass
 

@@ -84,7 +84,9 @@ class OpcUaTuiApp(App[None]):
         self._browser_pushed = True
         await self.store.dispatch(ConnectionSucceeded(session=result))
         await self.push_screen(BrowserScreen(self.store))
-        await self.store.dispatch(RootBrowseRequested())
+        asyncio.create_task(self.store.dispatch(RootBrowseRequested()))
+        # Yield once so root browse starts promptly without blocking initial browser rendering.
+        await asyncio.sleep(0)
 
     async def connect_and_open_browser(self, endpoint: str) -> None:
         params = ConnectParams(

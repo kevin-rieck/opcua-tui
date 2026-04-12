@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from time import monotonic
 
 from opcua_tui.app.messages import (
     ChildrenLoadFailed,
@@ -32,6 +33,8 @@ from opcua_tui.app.messages import (
     NodeWriteStarted,
     NodeWriteSucceeded,
     NodeValueLoaded,
+    OperationFinished,
+    OperationStarted,
     RootBrowseFailed,
     RootBrowseStarted,
     RootBrowseSucceeded,
@@ -41,6 +44,7 @@ from opcua_tui.domain.models import (
     AppState,
     BrowserState,
     InspectorState,
+    OperationActivity,
     SubscriptionItemState,
     SubscriptionsState,
 )
@@ -115,6 +119,26 @@ def reduce(state: AppState, message: object) -> AppState:
             next_state.ui.status_text = (
                 f"Connection failed for {endpoint}: {_format_error_with_ref(error, error_ref)}"
             )
+
+        case OperationStarted(
+            op_id=op_id,
+            kind=kind,
+            label=label,
+            scope=scope,
+            started_at=started_at,
+        ):
+            next_state.ui.activities[op_id] = OperationActivity(
+                op_id=op_id,
+                kind=kind,
+                label=label,
+                scope=scope,
+                started_at=started_at if started_at is not None else monotonic(),
+            )
+
+        case OperationFinished(op_id=op_id, error=error):
+            activity = next_state.ui.activities.pop(op_id, None)
+            if activity is not None and error:
+                next_state.ui.status_text = f"{activity.label}: {error}"
 
         case RootBrowseStarted():
             next_state.browser.loading.add("__root__")

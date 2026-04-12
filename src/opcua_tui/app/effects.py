@@ -32,6 +32,8 @@ from opcua_tui.app.messages import (
     NodeWriteStarted,
     NodeWriteSucceeded,
     NodeValueLoaded,
+    OperationFinished,
+    OperationStarted,
     RootBrowseFailed,
     RootBrowseRequested,
     RootBrowseStarted,
@@ -62,6 +64,15 @@ class Effects:
         match message:
             case ConnectRequested(params=params):
                 safe_endpoint = sanitize_endpoint(params.endpoint)
+                connect_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=connect_op_id,
+                        kind="connect",
+                        label=f"Connecting to {safe_endpoint}",
+                        scope="global",
+                    )
+                )
                 await self.dispatch(ConnectionStarted(endpoint=safe_endpoint))
                 try:
                     await self.opcua.stop_subscription_stream()
@@ -74,6 +85,15 @@ class Effects:
                             endpoint=safe_endpoint, error=str(exc), error_ref=error_ref
                         )
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=connect_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=connect_op_id))
 
             case ConnectionSucceeded():
                 try:
@@ -87,6 +107,15 @@ class Effects:
                     )
 
             case RootBrowseRequested():
+                browse_root_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=browse_root_op_id,
+                        kind="browse_root",
+                        label="Loading root nodes",
+                        scope="tree",
+                    )
+                )
                 await self.dispatch(RootBrowseStarted())
                 try:
                     roots = await self.opcua.browse_children(None)
@@ -94,8 +123,26 @@ class Effects:
                 except Exception as exc:
                     error_ref = self._log_operation_failure("browse_root")
                     await self.dispatch(RootBrowseFailed(error=str(exc), error_ref=error_ref))
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=browse_root_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=browse_root_op_id))
 
             case NodeExpandRequested(node_id=node_id):
+                browse_children_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=browse_children_op_id,
+                        kind="browse_children",
+                        label=f"Loading children for {node_id}",
+                        scope="tree",
+                    )
+                )
                 await self.dispatch(ChildrenLoadStarted(node_id=node_id))
                 try:
                     children = await self.opcua.browse_children(node_id)
@@ -111,8 +158,26 @@ class Effects:
                             error_ref=error_ref,
                         )
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=browse_children_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=browse_children_op_id))
 
             case NodeSelected(node_id=node_id):
+                inspect_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=inspect_op_id,
+                        kind="inspect_node",
+                        label=f"Inspecting {node_id}",
+                        scope="details",
+                    )
+                )
                 await self.dispatch(NodeInspectionStarted(node_id=node_id))
                 try:
                     attrs_task = asyncio.create_task(self.opcua.read_attributes(node_id))
@@ -125,10 +190,28 @@ class Effects:
                     await self.dispatch(
                         NodeInspectionFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=inspect_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=inspect_op_id))
 
             case NodeWriteRequested(
                 node_id=node_id, value_text=value_text, variant_hint=variant_hint
             ):
+                write_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=write_op_id,
+                        kind="write_value",
+                        label=f"Writing value for {node_id}",
+                        scope="details",
+                    )
+                )
                 await self.dispatch(NodeWriteStarted(node_id=node_id))
                 try:
                     await self.opcua.write_value(node_id, value_text, variant_hint)
@@ -140,8 +223,26 @@ class Effects:
                     await self.dispatch(
                         NodeWriteFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=write_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=write_op_id))
 
             case NodeSubscribeRequested(node_id=node_id, display_name=display_name):
+                subscribe_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=subscribe_op_id,
+                        kind="subscribe_value",
+                        label=f"Subscribing to {node_id}",
+                        scope="watchlist",
+                    )
+                )
                 await self.dispatch(NodeSubscribeStarted(node_id=node_id))
                 try:
                     canonical_node_id = await self.opcua.subscribe_value(node_id)
@@ -153,8 +254,26 @@ class Effects:
                     await self.dispatch(
                         NodeSubscribeFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=subscribe_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=subscribe_op_id))
 
             case NodeUnsubscribeRequested(node_id=node_id):
+                unsubscribe_op_id = uuid.uuid4().hex
+                await self.dispatch(
+                    OperationStarted(
+                        op_id=unsubscribe_op_id,
+                        kind="unsubscribe_value",
+                        label=f"Unsubscribing from {node_id}",
+                        scope="watchlist",
+                    )
+                )
                 await self.dispatch(NodeUnsubscribeStarted(node_id=node_id))
                 try:
                     await self.opcua.unsubscribe_value(node_id)
@@ -164,6 +283,15 @@ class Effects:
                     await self.dispatch(
                         NodeUnsubscribeFailed(node_id=node_id, error=str(exc), error_ref=error_ref)
                     )
+                    await self.dispatch(
+                        OperationFinished(
+                            op_id=unsubscribe_op_id,
+                            error=str(exc),
+                            error_ref=error_ref,
+                        )
+                    )
+                else:
+                    await self.dispatch(OperationFinished(op_id=unsubscribe_op_id))
 
     async def _on_subscription_update(self, update: SubscriptionValueUpdate) -> None:
         await self.dispatch(NodeSubscriptionValueReceived(update=update))

@@ -14,6 +14,7 @@ from opcua_tui.domain.models import (
     AppState,
     InspectorState,
     NodeAttributes,
+    OperationActivity,
     NodeRef,
     SubscriptionItemState,
     SubscriptionsState,
@@ -67,9 +68,11 @@ class FakeDetails:
 class FakeStatus:
     def __init__(self) -> None:
         self.text = None
+        self.activities = None
 
-    def render_status(self, text: str) -> None:
+    def render_status(self, text: str, *, activities=None) -> None:
         self.text = text
+        self.activities = activities
 
 
 class FakeWritePanel:
@@ -158,6 +161,7 @@ def test_browser_screen_render_state_updates_widgets(monkeypatch) -> None:
     assert write_panel.rendered is state.inspector
     assert watchlist_panel.rendered is state.subscriptions
     assert status.text == "ok"
+    assert status.activities == []
 
 
 def test_browser_screen_render_state_skips_tree_when_browser_state_unchanged(monkeypatch) -> None:
@@ -238,6 +242,47 @@ def test_browser_screen_render_state_clears_write_input_after_success(monkeypatc
     screen.render_state(current)
 
     assert write_panel.cleared is True
+
+
+def test_browser_screen_render_state_passes_activities_to_status(monkeypatch) -> None:
+    state = AppState(ui=UiState(status_text="Loading children for n1"))
+    activity = OperationActivity(
+        op_id="op-1",
+        kind="browse_children",
+        label="Loading children for n1",
+        scope="tree",
+        started_at=1.0,
+    )
+    state.ui.activities[activity.op_id] = activity
+    store = FakeStore(state=state)
+    screen = BrowserScreen(store)
+    tree = FakeTree()
+    details = FakeDetails()
+    status = FakeStatus()
+    write_panel = FakeWritePanel()
+    subscription_panel = FakeSubscriptionPanel()
+    watchlist_panel = FakeWatchlistPanel()
+
+    def fake_query_one(widget_type):
+        name = widget_type.__name__
+        if name == "AddressTree":
+            return tree
+        if name == "NodeDetails":
+            return details
+        if name == "WriteValuePanel":
+            return write_panel
+        if name == "SubscriptionPanel":
+            return subscription_panel
+        if name == "WatchlistPanel":
+            return watchlist_panel
+        return status
+
+    monkeypatch.setattr(screen, "query_one", fake_query_one)
+
+    screen.render_state(state)
+
+    assert status.text == "Loading children for n1"
+    assert status.activities == [activity]
 
 
 def test_browser_screen_node_selected_dispatches_public_message() -> None:
