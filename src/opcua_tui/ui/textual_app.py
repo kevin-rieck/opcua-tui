@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class OpcUaTuiApp(App[None]):
     BINDINGS = [
-        Binding("q", "quit", "Quit", priority=True),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """

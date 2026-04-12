@@ -62,7 +62,7 @@ Validation rules:
 ## Key Bindings
 
 - Global:
-  - `q`: quit
+  - `Ctrl+Q`: quit
 - Connect modal:
   - `Enter`: connect
   - `Esc`: cancel/exit
