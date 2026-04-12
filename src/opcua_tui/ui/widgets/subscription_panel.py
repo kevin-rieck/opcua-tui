@@ -7,6 +7,7 @@ class SubscriptionPanel(Static):
     DEFAULT_CSS = """
     SubscriptionPanel {
         border: solid $success;
+        background: $surface;
         padding: 1 2;
         height: auto;
     }

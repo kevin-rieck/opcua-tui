@@ -8,6 +8,7 @@ class WatchlistPanel(Static):
     WatchlistPanel {
         width: 1fr;
         border: solid $warning;
+        background: $surface;
         padding: 1 2;
         min-width: 36;
     }

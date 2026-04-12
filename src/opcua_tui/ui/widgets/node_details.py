@@ -7,6 +7,7 @@ class NodeDetails(Static):
         width: 2fr;
         height: 1fr;
         border: solid $accent;
+        background: $surface;
         padding: 1 2;
     }
     """

@@ -23,6 +23,7 @@ class AddressTree(Tree[TreeNodeData]):
     AddressTree {
         width: 1fr;
         border: solid $primary;
+        background: $surface;
         min-width: 30;
     }
     """

@@ -41,8 +41,8 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         max-width: 70vw;
         height: 30;
         max-height: 85vh;
-        background: $surface;
-        border: round $accent;
+        background: $panel;
+        border: round $primary;
     }
 
     #connect-body {
@@ -115,7 +115,7 @@ class ConnectModalScreen(ModalScreen[SessionInfo | None]):
         align-horizontal: right;
         height: auto;
         padding: 1 2;
-        border-top: solid $accent-darken-1;
+        border-top: solid $primary-darken-2;
     }
 
     Horizontal#connect-actions > Button {

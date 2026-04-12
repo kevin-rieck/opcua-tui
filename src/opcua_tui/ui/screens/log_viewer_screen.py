@@ -42,7 +42,8 @@ class LogViewerScreen(Screen[None]):
     #log-output {
         height: 1fr;
         margin: 0 1 1 1;
-        border: round $panel;
+        border: round $primary-darken-1;
+        background: $surface;
     }
     """
 

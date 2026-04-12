@@ -9,6 +9,7 @@ class WriteValuePanel(Static):
     DEFAULT_CSS = """
     WriteValuePanel {
         border: solid $secondary;
+        background: $surface;
         padding: 1 2;
         height: auto;
     }

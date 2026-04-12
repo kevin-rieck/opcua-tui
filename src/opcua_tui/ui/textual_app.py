@@ -15,6 +15,7 @@ from opcua_tui.domain.models import ConnectParams, SessionInfo
 from opcua_tui.infrastructure.opcua.stub_client import StubOpcUaClientAdapter
 from opcua_tui.ui.screens.browser_screen import BrowserScreen
 from opcua_tui.ui.screens.connect_modal_screen import ConnectModalScreen
+from opcua_tui.ui.theme import OPC_MODERN_THEME
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,22 @@ class OpcUaTuiApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
+        background: $background;
+        color: $text;
     }
 
     Horizontal {
         height: 1fr;
+    }
+
+    Header {
+        background: $panel;
+        color: $text;
+    }
+
+    Footer {
+        background: $footer-background;
+        color: $footer-foreground;
     }
     """
 
@@ -41,6 +54,8 @@ class OpcUaTuiApp(App[None]):
         self._browser_pushed = False
 
     async def on_mount(self) -> None:
+        self.register_theme(OPC_MODERN_THEME)
+        self.theme = OPC_MODERN_THEME.name
         await self.push_screen(
             ConnectModalScreen(
                 opcua=self.opcua,
