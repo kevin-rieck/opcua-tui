@@ -23,6 +23,11 @@ dev = [
 [project.scripts]
 opcua-tui = "opcua_tui.main:main"
 
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
