@@ -2,6 +2,8 @@
 
 A Textual-based terminal UI for connecting to an OPC UA server, browsing the address space, inspecting node data, subscribing to live value changes, writing scalar values, and viewing runtime logs.
 
+![OPC UA TUI browser overview](docs/assets/app-browser-overview.svg)
+
 ## How To (Quick Start)
 
 ```bash
