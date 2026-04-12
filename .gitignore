@@ -40,3 +40,8 @@ AGENTS.md
 artifacts/screens/
 tools/capture_screenshot.py
 tools/__pycache__/
+
+# Agent folders
+.codex/
+.claude/
+.copilot/
