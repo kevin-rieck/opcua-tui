@@ -25,6 +25,18 @@ from opcua_tui.ui.widgets.write_value_panel import WriteValuePanel
 
 
 class BrowserScreen(Screen):
+    DEFAULT_CSS = """
+    BrowserScreen > Horizontal {
+        width: 1fr;
+        height: 1fr;
+    }
+
+    #inspector-pane {
+        width: 2fr;
+        min-width: 30;
+    }
+    """
+
     BINDINGS = [
         ("w", "focus_write_input", "Write Value"),
         ("ctrl+s", "toggle_subscription", "Sub Toggle"),

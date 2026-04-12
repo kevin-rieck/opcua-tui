@@ -4,7 +4,7 @@ from textual.widgets import Static
 class NodeDetails(Static):
     DEFAULT_CSS = """
     NodeDetails {
-        width: 2fr;
+        width: 1fr;
         height: 1fr;
         border: solid $accent;
         padding: 1 2;
