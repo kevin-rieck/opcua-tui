@@ -2,9 +2,13 @@
 
 A Textual-based terminal UI for connecting to an OPC UA server, browsing the address space, inspecting node data, subscribing to live value changes, writing scalar values, and viewing runtime logs.
 
-![OPC UA TUI connect modal](docs/assets/connect-view.png)
-![OPC UA TUI browser overview](docs/assets/browser-view.png)
-![OPC UA TUI logging screen](docs/assets/logging-view.png)
+<table>
+  <tr>
+    <td><img src="docs/assets/connect-view.png" width="300" alt="Connect"></td>
+    <td><img src="docs/assets/browser-view.png" width="300" alt="Browser"></td>
+    <td><img src="docs/assets/logging-view.png" width="300" alt="Logging"></td>
+  </tr>
+</table>
 
 ## How To (Quick Start)
 
